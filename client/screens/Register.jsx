@@ -19,7 +19,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { SERVER_URL } from '@env';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const { width } = Dimensions.get('window');
+
 const Register = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const [formData, setFormData] = useState({
@@ -35,17 +38,20 @@ const Register = ({ navigation }) => {
   const [confirmSecureTextEntry, setConfirmSecureTextEntry] = useState(true);
   const [errors, setErrors] = useState({});
   const [currentStep, setCurrentStep] = useState(1);
+
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const formSlideAnim = useRef(new Animated.Value(0)).current;
+
   // Refs for TextInputs
   const emailInputRef = useRef(null);
   const passwordInputRef = useRef(null);
   const confirmPasswordInputRef = useRef(null);
   const firstNameInputRef = useRef(null);
   const lastNameInputRef = useRef(null);
+
   React.useEffect(() => {
     // Start animations when component mounts
     Animated.parallel([
@@ -66,6 +72,7 @@ const Register = ({ navigation }) => {
       }),
     ]).start();
   }, []);
+
   React.useEffect(() => {
     // Animate form slide when changing steps
     Animated.timing(formSlideAnim, {
@@ -73,10 +80,12 @@ const Register = ({ navigation }) => {
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, [currentStep, width]);
+  }, [currentStep]);
+
   const validateStep1 = () => {
     let newErrors = {};
     let isValid = true;
+
     if (!formData.username) {
       newErrors.username = 'Username is required';
       isValid = false;
@@ -84,6 +93,7 @@ const Register = ({ navigation }) => {
       newErrors.username = 'Username must be at least 3 characters';
       isValid = false;
     }
+
     if (!formData.email) {
       newErrors.email = 'Email is required';
       isValid = false;
@@ -91,12 +101,15 @@ const Register = ({ navigation }) => {
       newErrors.email = 'Email is invalid';
       isValid = false;
     }
+
     setErrors(newErrors);
     return isValid;
   };
+
   const validateStep2 = () => {
     let newErrors = {};
     let isValid = true;
+
     if (!formData.password) {
       newErrors.password = 'Password is required';
       isValid = false;
@@ -104,6 +117,7 @@ const Register = ({ navigation }) => {
       newErrors.password = 'Password must be at least 8 characters';
       isValid = false;
     }
+
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
       isValid = false;
@@ -111,14 +125,17 @@ const Register = ({ navigation }) => {
       newErrors.confirmPassword = 'Passwords do not match';
       isValid = false;
     }
+
     if (!formData.first_name) {
       newErrors.first_name = 'First name is required';
       isValid = false;
     }
+
     if (!formData.last_name) {
       newErrors.last_name = 'Last name is required';
       isValid = false;
     }
+
     setErrors(newErrors);
     return isValid;
   };
@@ -127,6 +144,8 @@ const Register = ({ navigation }) => {
     if (validateStep1()) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setCurrentStep(2);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
@@ -146,6 +165,7 @@ const Register = ({ navigation }) => {
 
   const handleRegister = async () => {
     if (!validateStep2()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
 
@@ -153,6 +173,9 @@ const Register = ({ navigation }) => {
     setIsLoading(true);
 
     try {
+      // Register the user
+      console.log(SERVER_URL);
+      
       const response = await fetch(`${SERVER_URL}/api/auth/register`, {
         method: 'POST',
         headers: {
@@ -166,25 +189,62 @@ const Register = ({ navigation }) => {
           last_name: formData.last_name,
         }),
       });
-
+      console.log(response);
+      
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.message || 'Registration failed');
       }
 
-      // Registration successful
-      Alert.alert(
-        'Registration Successful',
-        'You can now log in with your new account.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.navigate('Login'),
-          },
-        ]
-      );
+      // Login automatically after successful registration
+      const loginResponse = await fetch(`${SERVER_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      const loginData = await loginResponse.json();
+
+      if (!loginResponse.ok) {
+        // Registration was successful but login failed
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          'Registration Successful',
+          'You can now log in with your new account.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('Login'),
+            },
+          ]
+        );
+        return;
+      }
+
+      // Store tokens and user data in AsyncStorage
+      await AsyncStorage.setItem('accessToken', loginData.access_token);
+      await AsyncStorage.setItem('refreshToken', loginData.refresh_token);
+      await AsyncStorage.setItem('userData', JSON.stringify({
+        userId: loginData.user_id,
+        email: loginData.email,
+        firstName: loginData.first_name,
+        lastName: loginData.last_name,
+        onboardingComplete: false, // Ensure we go to onboarding
+        onboardingStep: 1
+      }));
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Navigate to Onboarding screen immediately after registration
+      navigation.replace('Onboarding');
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Registration Failed', error.message);
     } finally {
       setIsLoading(false);
@@ -196,14 +256,12 @@ const Register = ({ navigation }) => {
     setCurrentStep(1);
   };
 
-  const toggleSecureEntry = () => {
-    setSecureTextEntry(!secureTextEntry);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const toggleConfirmSecureEntry = () => {
-    setConfirmSecureTextEntry(!confirmSecureTextEntry);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const animatedPillStyle = {
+    transform: [
+      { translateY: slideAnim },
+      { scale: scaleAnim }
+    ],
+    opacity: fadeAnim,
   };
 
   const renderStep1 = () => (
@@ -213,9 +271,11 @@ const Register = ({ navigation }) => {
         { transform: [{ translateX: formSlideAnim }] }
       ]}
     >
-      <Text style={styles.stepIndicator}>Step 1 of 2</Text>
+      <Text style={styles.headerText}>Create Account</Text>
+      <Text style={styles.subHeaderText}>Step 1 of 2</Text>
+
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="account" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="account-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           style={styles.input}
           placeholder="Username"
@@ -230,7 +290,7 @@ const Register = ({ navigation }) => {
       {errors.username && <Text style={styles.errorText}>{errors.username}</Text>}
 
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="email" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="email-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           ref={emailInputRef}
           style={styles.input}
@@ -244,14 +304,30 @@ const Register = ({ navigation }) => {
       </View>
       {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
 
-      <TouchableOpacity style={styles.button} onPress={handleNextStep} activeOpacity={0.8}>
-        <Text style={styles.buttonText}>Next</Text>
+      <TouchableOpacity
+        style={styles.nextButton}
+        onPress={handleNextStep}
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={['#ff9966', '#ff5e62']}
+          style={styles.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+        >
+          <Text style={styles.buttonText}>Next</Text>
+        </LinearGradient>
       </TouchableOpacity>
 
-      <View style={styles.footerContainer}>
-        <Text style={styles.footerText}>Already have an account? </Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-          <Text style={styles.footerLink}>Login</Text>
+      <View style={styles.registerContainer}>
+        <Text style={styles.registerText}>Already have an account? </Text>
+        <TouchableOpacity 
+          onPress={() => {
+            Haptics.selectionAsync();
+            navigation.navigate('Login');
+          }}
+        >
+          <Text style={styles.registerLink}>Sign In</Text>
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -267,10 +343,11 @@ const Register = ({ navigation }) => {
         }) }] }
       ]}
     >
-      <Text style={styles.stepIndicator}>Step 2 of 2</Text>
+      <Text style={styles.headerText}>Complete Profile</Text>
+      <Text style={styles.subHeaderText}>Step 2 of 2</Text>
 
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="lock" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="lock-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           ref={passwordInputRef}
           style={styles.input}
@@ -282,18 +359,24 @@ const Register = ({ navigation }) => {
           onSubmitEditing={() => confirmPasswordInputRef.current.focus()}
           blurOnSubmit={false}
         />
-        <TouchableOpacity style={styles.eyeIcon} onPress={toggleSecureEntry}>
-          <MaterialCommunityIcons
-            name={secureTextEntry ? 'eye-off' : 'eye'}
-            size={24}
-            color="#6b7280"
+        <TouchableOpacity 
+          style={styles.eyeIcon}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setSecureTextEntry(!secureTextEntry);
+          }}
+        >
+          <MaterialCommunityIcons 
+            name={secureTextEntry ? "eye-outline" : "eye-off-outline"} 
+            size={20} 
+            color="#888" 
           />
         </TouchableOpacity>
       </View>
       {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
 
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="lock-check" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="lock-check-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           ref={confirmPasswordInputRef}
           style={styles.input}
@@ -305,18 +388,24 @@ const Register = ({ navigation }) => {
           onSubmitEditing={() => firstNameInputRef.current.focus()}
           blurOnSubmit={false}
         />
-        <TouchableOpacity style={styles.eyeIcon} onPress={toggleConfirmSecureEntry}>
-          <MaterialCommunityIcons
-            name={confirmSecureTextEntry ? 'eye-off' : 'eye'}
-            size={24}
-            color="#6b7280"
+        <TouchableOpacity 
+          style={styles.eyeIcon}
+          onPress={() => {
+            Haptics.selectionAsync();
+            setConfirmSecureTextEntry(!confirmSecureTextEntry);
+          }}
+        >
+          <MaterialCommunityIcons 
+            name={confirmSecureTextEntry ? "eye-outline" : "eye-off-outline"} 
+            size={20} 
+            color="#888" 
           />
         </TouchableOpacity>
       </View>
       {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
 
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="badge-account" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="account-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           ref={firstNameInputRef}
           style={styles.input}
@@ -331,7 +420,7 @@ const Register = ({ navigation }) => {
       {errors.first_name && <Text style={styles.errorText}>{errors.first_name}</Text>}
 
       <View style={styles.inputContainer}>
-        <MaterialCommunityIcons name="account-box" size={24} color="#ff7e5f" style={styles.inputIcon} />
+        <MaterialCommunityIcons name="account-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
         <TextInput
           ref={lastNameInputRef}
           style={styles.input}
@@ -345,22 +434,40 @@ const Register = ({ navigation }) => {
       {errors.last_name && <Text style={styles.errorText}>{errors.last_name}</Text>}
 
       <View style={styles.buttonRow}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.8}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#ffffff" />
-          <Text style={styles.backButtonText}>Back</Text>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={handleBack}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#ff9966', '#ff8e62']}
+            style={styles.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={20} color="#ffffff" />
+            <Text style={styles.backButtonText}>Back</Text>
+          </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.button, { flex: 1 }]} 
-          onPress={handleRegister} 
+          style={styles.registerButton}
+          onPress={handleRegister}
           activeOpacity={0.8}
           disabled={isLoading}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.buttonText}>Register</Text>
-          )}
+          <LinearGradient
+            colors={['#ff9966', '#ff5e62']}
+            style={styles.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.buttonText}>Sign Up</Text>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -368,46 +475,30 @@ const Register = ({ navigation }) => {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={[styles.container, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar barStyle="dark-content" />
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <ScrollView 
-          contentContainerStyle={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
+  
+      <Animated.View style={[styles.logoContainer, animatedPillStyle]}>
+        <LinearGradient
+          colors={['#ff9966', '#ff5e62']}
+          style={styles.logoBackground}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
         >
-          <Animated.View
-            style={[
-              styles.headerContainer,
-              {
-                opacity: fadeAnim,
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: scaleAnim },
-                ],
-              },
-            ]}
-          >
-            <LinearGradient
-              colors={['#ff9966', '#ff5e62']}
-              style={styles.logoBackground}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <MaterialCommunityIcons name="pill" size={40} color="white" />
-            </LinearGradient>
-            <Text style={styles.logoText}>MedRemind</Text>
-          </Animated.View>
-
-          <View style={styles.formSliderContainer}>
-            {renderStep1()}
-            {renderStep2()}
-          </View>
-        </ScrollView>
+          <MaterialCommunityIcons name="pill" size={40} color="white" />
+        </LinearGradient>
+        <Text style={styles.logoText}>MedRemind</Text>
+      </Animated.View>
+  
+      <View style={styles.formSliderContainer}>
+        {renderStep1()}
+        {renderStep2()}
       </View>
     </KeyboardAvoidingView>
   );
+  
 };
 
 const styles = StyleSheet.create({
@@ -416,11 +507,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingHorizontal: 20,
   },
-  scrollContainer: {
-    flexGrow: 1,
-    paddingBottom: 30,
-  },
-  headerContainer: {
+  logoContainer: {
     alignItems: 'center',
     marginTop: 40,
     marginBottom: 20,
@@ -447,32 +534,33 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     width: '100%',
-    height: 460, // Adjust based on your form size
+    height: 500, // Increased height to accommodate all form fields
   },
   formContainer: {
     position: 'absolute',
-    width: width - 40, // Account for padding
+    width: width - 40,
   },
-  stepIndicator: {
+  headerText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
     textAlign: 'center',
-    marginBottom: 15,
-    fontSize: 14,
+  },
+  subHeaderText: {
+    fontSize: 16,
     color: '#666',
-    fontWeight: '500',
+    marginBottom: 30,
+    textAlign: 'center',
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
     backgroundColor: '#f7f7f7',
     borderRadius: 10,
-    marginBottom: 12,
     paddingHorizontal: 15,
     borderWidth: 1,
     borderColor: '#eee',
-  },
-  inputIcon: {
-    marginRight: 10,
-    color: '#ff7e5f',
   },
   input: {
     flex: 1,
@@ -481,76 +569,89 @@ const styles = StyleSheet.create({
     color: '#333',
     paddingLeft: 5,
   },
+  inputIcon: {
+    marginRight: 10,
+  },
   eyeIcon: {
-    padding: 5,
+    padding: 10,
   },
   errorText: {
     color: '#ff5e62',
     fontSize: 12,
-    marginTop: -8,
-    marginBottom: 8,
+    marginBottom: 10,
     marginLeft: 5,
   },
-  button: {
-    backgroundColor: '#ff7e5f',
+  nextButton: {
+    width: '100%',
+    height: 55,
     borderRadius: 10,
-    padding: 15,
-    alignItems: 'center',
-    marginTop: 10,
+    marginBottom: 20,
+    overflow: 'hidden',
     shadowColor: '#ff7e5f',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 8,
+  },
+  registerButton: {
+    flex: 1,
     height: 55,
-    justifyContent: 'center',
+    borderRadius: 10,
+    marginBottom: 20,
     overflow: 'hidden',
+    shadowColor: '#ff7e5f',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  gradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
   },
   buttonText: {
-    color: '#ffffff',
+    color: 'white',
     fontSize: 18,
+    fontWeight: 'bold',
+  },
+  registerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  registerText: {
+    color: '#666',
+    fontSize: 16,
+  },
+  registerLink: {
+    color: '#ff7e5f',
+    fontSize: 16,
     fontWeight: 'bold',
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
     gap: 10,
   },
   backButton: {
-    backgroundColor: '#ff9966',
+    width: 100,
+    height: 55,
     borderRadius: 10,
-    padding: 15,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    shadowColor: '#000',
+    overflow: 'hidden',
+    shadowColor: '#ff9966',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-    width: 100,
+    shadowRadius: 3,
+    elevation: 5,
   },
   backButtonText: {
-    color: '#ffffff',
+    color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 5,
-  },
-  footerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  footerText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  footerLink: {
-    color: '#ff7e5f',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+  }
 });
 
 export default Register;

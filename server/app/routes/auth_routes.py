@@ -19,7 +19,7 @@ def register():
     """
     
     data = request.get_json()
-    
+    print(data)
     if not data:
         return jsonify({'message': 'No input data provided'}), 400
     
