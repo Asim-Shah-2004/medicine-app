@@ -1,0 +1,38 @@
+import { vars } from 'nativewind';
+
+export const themes = {
+  light: vars({
+    '--color-primary': '#2C3E8D',
+    '--color-primary-light': '#4B69C6',
+    '--color-secondary': '#3498DB',
+    '--color-secondary-light': '#7CC0F0',
+    '--color-tertiary': '#34495E',
+    '--color-tertiary-light': '#546E7A',
+    '--color-accent': '#E67E22',
+    '--color-accent-light': '#F39C12',
+    '--color-grey': '#95A5A6',
+    '--color-slate': '#2C3E50',
+    '--color-dark': '#1A1A2E',
+    '--color-overlay': 'rgba(0, 0, 0, .05)',
+    '--color-text': '#2C3E50',
+    '--color-highlight': '#34495E',
+    '--color-bg': '#F5F7FA',
+  }),
+  dark: vars({
+    '--color-primary': '#4B69C6',
+    '--color-primary-light': '#6C8EE6',
+    '--color-secondary': '#3498DB',
+    '--color-secondary-light': '#5DADE2',
+    '--color-tertiary': '#7F8C8D',
+    '--color-tertiary-light': '#95A5A6',
+    '--color-accent': '#F39C12',
+    '--color-accent-light': '#FFB74D',
+    '--color-grey': '#BDC3C7',
+    '--color-slate': '#7F8C8D',
+    '--color-dark': '#2C3E50',
+    '--color-overlay': 'rgba(255, 255, 255, .07)',
+    '--color-text': '#ECF0F1',
+    '--color-highlight': '#34495E',
+    '--color-bg': '#121212',
+  }),
+};
