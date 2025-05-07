@@ -9,6 +9,9 @@ import { View } from 'react-native';
 import Login from './screens/Login.jsx';
 import Onboarding from './screens/Onboarding.jsx';
 import Register from './screens/Register.jsx';
+import Home from './screens/Home.jsx';
+import AddMedicine from './screens/AddMedicine.jsx';
+import Schedule from './screens/Schedule.jsx';
 
 // Create the navigator
 const Stack = createNativeStackNavigator();
@@ -31,6 +34,21 @@ export default function App() {
           <Stack.Screen 
             name="Onboarding" 
             component={Onboarding} 
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="Home" 
+            component={Home} 
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="AddMedicine" 
+            component={AddMedicine} 
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="Schedule" 
+            component={Schedule} 
             options={{ headerShown: false }}
           />
         </Stack.Navigator>
