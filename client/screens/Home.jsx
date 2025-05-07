@@ -19,6 +19,7 @@ import { MaterialIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { SERVER_URL } from '@env';
 import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 
 const Home = () => {
   const navigation = useNavigation();
@@ -31,10 +32,56 @@ const Home = () => {
   
   // Reminder state management
   const [reminderVisible, setReminderVisible] = useState(false);
+  const [upcomingReminderVisible, setUpcomingReminderVisible] = useState(false);
   const [currentReminder, setCurrentReminder] = useState(null);
+  const [upcomingReminder, setUpcomingReminder] = useState(null);
   const [activeReminders, setActiveReminders] = useState([]);
   const reminderOpacity = useRef(new Animated.Value(0)).current;
+  const upcomingReminderOpacity = useRef(new Animated.Value(0)).current;
   const sound = useRef(null);
+
+  // Fetch initial user medications from onboarding
+  const fetchUserMedications = async () => {
+    try {
+      const token = await AsyncStorage.getItem('accessToken');
+      
+      if (!token) {
+        navigation.navigate('Login');
+        return;
+      }
+
+      const userResponse = await axios.get(`${SERVER_URL}/api/user/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Extract medications from user profile
+      const userMedications = userResponse.data.medications || [];
+      
+      // Transform user medications to the format expected by the app
+      const transformedMedications = userMedications.map((med, index) => {
+        // Parse the time_of_day to extract time
+        const medDate = new Date(med.time_of_day);
+        const hours = medDate.getHours().toString().padStart(2, '0');
+        const minutes = medDate.getMinutes().toString().padStart(2, '0');
+        const timeString = `${hours}:${minutes}`;
+
+        return {
+          _id: `onboarding-med-${index}`, // Create a temporary ID
+          name: med.name,
+          dosage: med.dosage,
+          time: timeString,
+          frequency: med.frequency,
+          notes: med.notes,
+          last_status: false // Default to not taken
+        };
+      });
+
+      return transformedMedications;
+    } catch (error) {
+      console.error('Error fetching user medications:', error);
+      return [];
+    }
+  };
 
   // Fetch data from the server
   const fetchData = async () => {
@@ -46,9 +93,40 @@ const Home = () => {
         return;
       }
 
+      // First check if we have medications from onboarding
+      const onboardingMedications = await fetchUserMedications();
+
       // Get today's medicines
       const todayResponse = await axios.get(`${SERVER_URL}/api/user/medicines/today`, {
         headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Combine onboarding medications with today's medicines
+      // Only include onboarding medications if they're not already in today's medicines
+      const combinedMedications = [...todayResponse.data.medicines];
+      
+      if (onboardingMedications.length > 0) {
+        // Add onboarding medications that aren't already in today's medicines
+        onboardingMedications.forEach(onboardingMed => {
+          const alreadyExists = combinedMedications.some(
+            todayMed => todayMed.name === onboardingMed.name && todayMed.time === onboardingMed.time
+          );
+          
+          if (!alreadyExists) {
+            combinedMedications.push(onboardingMed);
+          }
+        });
+      }
+
+      // Sort medications by time
+      combinedMedications.sort((a, b) => {
+        const timeA = a.time.split(':').map(Number);
+        const timeB = b.time.split(':').map(Number);
+        
+        if (timeA[0] !== timeB[0]) {
+          return timeA[0] - timeB[0]; // Sort by hour
+        }
+        return timeA[1] - timeB[1]; // Sort by minute
       });
 
       // Get progress data
@@ -61,11 +139,18 @@ const Home = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      setTodayMedicines(todayResponse.data.medicines);
+      const firstMedicationTime = combinedMedications.length > 0 ? combinedMedications[0].time : null;
+
+      setTodayMedicines(combinedMedications);
       setProgress(progressResponse.data);
       setSchedule(scheduleResponse.data.schedule);
       setLoading(false);
       setRefreshing(false);
+      
+      return { 
+        medicines: combinedMedications,
+        firstMedicationTime 
+      };
     } catch (error) {
       console.error('Error fetching data:', error);
       setLoading(false);
@@ -75,6 +160,8 @@ const Home = () => {
         Alert.alert('Session Expired', 'Please login again');
         navigation.navigate('Login');
       }
+      
+      return { medicines: [] };
     }
   };
 
@@ -112,16 +199,32 @@ const Home = () => {
     return `${formattedHour}:${minutes} ${ampm}`;
   };
 
-  // Check if medicine is due now (within 30 minutes)
-  const isDue = (timeString) => {
+  // Check if medicine is due now (within 30 seconds)
+  const isDueNow = (timeString) => {
     const [hours, minutes] = timeString.split(':');
     const medicineTime = new Date();
     medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
     
     const now = new Date();
-    const timeDiff = Math.abs(medicineTime - now) / (1000 * 60); // difference in minutes
+    const timeDiff = Math.abs(medicineTime - now) / (1000); // difference in seconds
     
     return timeDiff <= 30;
+  };
+
+  // Check if medicine is upcoming (within 15 minutes)
+  const isUpcoming = (timeString) => {
+    const [hours, minutes] = timeString.split(':');
+    const medicineTime = new Date();
+    medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+    
+    const now = new Date();
+    
+    // Medicine time should be in the future
+    if (medicineTime <= now) return false;
+    
+    const timeDiff = Math.abs(medicineTime - now) / (1000 * 60); // difference in minutes
+    
+    return timeDiff <= 15; // Within 15 minutes
   };
 
   // Navigate to add medicine screen
@@ -131,29 +234,97 @@ const Home = () => {
 
   // Navigate to full schedule/calendar view
   const goToSchedule = () => {
-    navigation.navigate('Schedule', { schedule });
+    // Pass the first medicine time to schedule for proper week start
+    const firstMedicineTime = todayMedicines.length > 0 ? todayMedicines[0].time : null;
+    navigation.navigate('Schedule', { schedule, firstMedicineTime });
   };
 
   // Play alert sound
   const playAlertSound = async () => {
     try {
+      // First try Haptics
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      
+      // Stop previous sound if exists
       if (sound.current) {
-        await sound.current.unloadAsync();
+        await sound.current.unloadAsync().catch(() => {});
       }
+      
+      // Create a simple sound using system preset
       const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/sounds/medicine-alert.mp3'),
-        { shouldPlay: true, isLooping: true }
+        require('expo-asset/play_button.ios.m4a'), // Use expo asset's built-in sound
+        { shouldPlay: true, isLooping: true, volume: 1.0 }
       );
+      
       sound.current = newSound;
+      
+      // Set a timeout to stop the sound after 30 seconds in case user doesn't respond
+      setTimeout(async () => {
+        if (sound.current) {
+          await sound.current.stopAsync().catch(() => {});
+        }
+      }, 30000);
     } catch (error) {
-      console.error('Error playing sound', error);
+      console.log('Sound playback failed, falling back to haptic only');
+      // Fallback to repeated haptics if sound fails
+      const hapticInterval = setInterval(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      }, 2000);
+      
+      // Store the interval ID in a ref so we can clear it later
+      sound.current = { 
+        hapticInterval,
+        stopAsync: async () => clearInterval(hapticInterval),
+        unloadAsync: async () => clearInterval(hapticInterval)
+      };
+    }
+  };
+
+  // Play upcoming reminder sound (less intrusive)
+  const playUpcomingSound = async () => {
+    try {
+      // Use haptic feedback first (gentle)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // Stop previous sound if exists
+      if (sound.current) {
+        await sound.current.unloadAsync().catch(() => {});
+      }
+      
+      // Use a simple sound notification
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+        { shouldPlay: true, isLooping: false, volume: 0.7 }
+      );
+      
+      sound.current = newSound;
+      
+      // Automatically release audio after playing once
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          newSound.unloadAsync().catch(() => {});
+        }
+      });
+    } catch (error) {
+      console.log('Upcoming sound playback failed, falling back to haptic only');
+      // Just use haptics if sound fails
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
   // Stop alert sound
   const stopAlertSound = async () => {
     if (sound.current) {
-      await sound.current.stopAsync();
+      try {
+        if (sound.current.hapticInterval) {
+          clearInterval(sound.current.hapticInterval);
+        } else {
+          await sound.current.stopAsync();
+        }
+        await sound.current.unloadAsync();
+      } catch (error) {
+        console.log('Error stopping sound:', error);
+      }
     }
   };
 
@@ -182,7 +353,7 @@ const Home = () => {
         
         // Check if there are more reminders waiting
         const nextReminders = todayMedicines.filter(med => 
-          isDue(med.time) && 
+          isDueNow(med.time) && 
           !med.last_status && 
           !activeReminders.includes(med._id) &&
           med._id !== currentReminder._id
@@ -199,6 +370,30 @@ const Home = () => {
         setCurrentReminder(null);
       });
     }
+  };
+
+  // Handle upcoming reminder dismissal
+  const dismissUpcomingReminder = () => {
+    // Animate out
+    Animated.timing(upcomingReminderOpacity, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(async () => {
+      // Stop sound
+      await stopAlertSound();
+      
+      // Hide modal
+      setUpcomingReminderVisible(false);
+      
+      // Remove from active reminders if there is an upcomingReminder
+      if (upcomingReminder) {
+        setActiveReminders(prev => prev.filter(id => id !== upcomingReminder._id));
+      }
+      
+      // Clear upcoming reminder
+      setUpcomingReminder(null);
+    });
   };
 
   // Show reminder for specific medicine
@@ -223,46 +418,105 @@ const Home = () => {
     playAlertSound();
   };
 
-  // Check for medicines that are due
-  const checkDueMedicines = useCallback(() => {
+  // Show upcoming reminder for medicine
+  const showUpcomingReminderForMedicine = (medicine) => {
+    // Set upcoming reminder
+    setUpcomingReminder(medicine);
+    
+    // Add to active reminders
+    setActiveReminders(prev => [...prev, medicine._id]);
+    
+    // Show modal
+    setUpcomingReminderVisible(true);
+    
+    // Animate in
+    Animated.timing(upcomingReminderOpacity, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+    
+    // Play upcoming alert sound
+    playUpcomingSound();
+  };
+
+  // Check for medicines that are due now or upcoming
+  const checkMedicines = useCallback(() => {
     // Skip if a reminder is already showing
     if (reminderVisible) return;
     
-    // Find medicines that are due and not taken
+    // First, check for medicines that are due RIGHT NOW (within 30 seconds)
     const dueMedicines = todayMedicines.filter(medicine => 
-      isDue(medicine.time) && 
+      isDueNow(medicine.time) && 
       !medicine.last_status && 
       !activeReminders.includes(medicine._id)
     );
     
     if (dueMedicines.length > 0) {
       showReminderForMedicine(dueMedicines[0]);
+      return;
     }
-  }, [todayMedicines, reminderVisible, activeReminders]);
+    
+    // If no medicines are due right now, check for upcoming medicines (within 15 mins)
+    // Only show upcoming reminder if there's no active upcoming reminder
+    if (!upcomingReminderVisible) {
+      const upcomingMedicines = todayMedicines.filter(medicine => 
+        isUpcoming(medicine.time) && 
+        !medicine.last_status && 
+        !activeReminders.includes(medicine._id)
+      );
+      
+      if (upcomingMedicines.length > 0) {
+        showUpcomingReminderForMedicine(upcomingMedicines[0]);
+      }
+    }
+  }, [todayMedicines, reminderVisible, upcomingReminderVisible, activeReminders]);
 
   // Setup polling and check for medicine alerts
   useEffect(() => {
-    fetchData();
-    
-    // Set up polling interval (every 10 seconds)
-    const intervalId = setInterval(() => {
-      fetchData();
-      setCurrentTime(new Date());
-    }, 10000);
-    
-    return () => {
-      clearInterval(intervalId);
-      // Ensure sound is stopped when component unmounts
-      if (sound.current) {
-        sound.current.unloadAsync();
+    // Configure audio session for playback
+    const setupAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: true,
+        });
+      } catch (error) {
+        console.log('Error setting audio mode:', error);
       }
     };
+    
+    const initialize = async () => {
+      await setupAudio();
+      const data = await fetchData();
+      
+      // Set up polling interval (every 5 seconds for more accurate time checks)
+      const intervalId = setInterval(() => {
+        setCurrentTime(new Date());
+        checkMedicines();
+      }, 5000);
+      
+      return () => {
+        clearInterval(intervalId);
+        // Ensure sound is stopped when component unmounts
+        if (sound.current) {
+          if (sound.current.hapticInterval) {
+            clearInterval(sound.current.hapticInterval);
+          } else {
+            sound.current.unloadAsync().catch(() => {});
+          }
+        }
+      };
+    };
+    
+    initialize();
   }, []);
 
   // Check for due medicines whenever todayMedicines changes
   useEffect(() => {
-    checkDueMedicines();
-  }, [todayMedicines, checkDueMedicines]);
+    checkMedicines();
+  }, [todayMedicines, checkMedicines]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -275,17 +529,36 @@ const Home = () => {
   // Generate weekday labels for the schedule preview
   const getWeekDays = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const today = new Date();
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay()); // Start from Sunday
+    
+    // If there are medications, start the week from the first medication's day
+    let weekStart;
+    
+    if (todayMedicines.length > 0) {
+      // Get the first medicine's time and use that to determine the start date
+      const firstMedicine = todayMedicines[0];
+      const [hours, minutes] = firstMedicine.time.split(':').map(Number);
+      
+      const today = new Date();
+      weekStart = new Date(today);
+      weekStart.setHours(hours, minutes, 0, 0);
+      
+      // If the first medicine time has already passed today, use tomorrow as the start
+      if (weekStart < today) {
+        weekStart.setDate(weekStart.getDate() + 1);
+      }
+    } else {
+      // Default to today if no medicines
+      const today = new Date();
+      weekStart = new Date(today);
+    }
     
     return days.map((day, index) => {
       const date = new Date(weekStart);
       date.setDate(weekStart.getDate() + index);
       const dateString = date.toISOString().split('T')[0];
-      const isToday = date.getDate() === today.getDate() && 
-                      date.getMonth() === today.getMonth() && 
-                      date.getFullYear() === today.getFullYear();
+      const isToday = date.getDate() === new Date().getDate() && 
+                      date.getMonth() === new Date().getMonth() && 
+                      date.getFullYear() === new Date().getFullYear();
       
       return {
         day,
@@ -346,12 +619,16 @@ const Home = () => {
             todayMedicines.map((medicine) => (
               <View key={medicine._id} style={[
                 styles.medicineCard,
-                isDue(medicine.time) && !medicine.last_status && styles.dueMedicineCard
+                isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
+                isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard
               ]}>
                 <View style={styles.medicineInfo}>
                   <Text style={styles.medicineName}>{medicine.name}</Text>
                   <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
                   <Text style={styles.medicineTime}>{formatTime(medicine.time)}</Text>
+                  {isUpcoming(medicine.time) && !medicine.last_status && (
+                    <Text style={styles.upcomingText}>Coming up soon</Text>
+                  )}
                 </View>
                 <View style={styles.actionButtons}>
                   <TouchableOpacity 
@@ -422,7 +699,7 @@ const Home = () => {
         </View>
       </ScrollView>
 
-      {/* Medicine Reminder Modal */}
+      {/* Medicine Due Now Reminder Modal */}
       <Modal
         transparent={true}
         visible={reminderVisible}
@@ -463,6 +740,54 @@ const Home = () => {
                 <Text style={styles.reminderButtonText}>Skip</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </Animated.View>
+      </Modal>
+
+      {/* Upcoming Medicine Reminder Modal */}
+      <Modal
+        transparent={true}
+        visible={upcomingReminderVisible}
+        animationType="none"
+        onRequestClose={() => dismissUpcomingReminder()}
+      >
+        <Animated.View 
+          style={[
+            styles.upcomingReminderContainer,
+            { opacity: upcomingReminderOpacity }
+          ]}
+        >
+          <View style={styles.upcomingReminderContent}>
+            <View style={styles.upcomingReminderIconContainer}>
+              <Ionicons name="time-outline" size={40} color="#FF7F50" />
+            </View>
+            <View style={styles.upcomingReminderTextContainer}>
+              <Text style={styles.upcomingReminderTitle}>Medication Reminder</Text>
+              {upcomingReminder && (
+                <>
+                  <Text style={styles.upcomingReminderMedicineName}>
+                    {upcomingReminder.name} in {
+                      (() => {
+                        const [hours, minutes] = upcomingReminder.time.split(':');
+                        const medicineTime = new Date();
+                        medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                        
+                        const now = new Date();
+                        const timeDiff = Math.floor((medicineTime - now) / (1000 * 60));
+                        
+                        return `${timeDiff} mins`;
+                      })()
+                    }
+                  </Text>
+                </>
+              )}
+            </View>
+            <TouchableOpacity 
+              style={styles.dismissButton}
+              onPress={dismissUpcomingReminder}
+            >
+              <Ionicons name="close" size={20} color="#666" />
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </Modal>
@@ -567,6 +892,11 @@ const styles = StyleSheet.create({
     borderLeftWidth: 5,
     borderLeftColor: '#FF7F50',
   },
+  upcomingMedicineCard: {
+    backgroundColor: '#FFF8F5',
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFA07A',
+  },
   medicineInfo: {
     flex: 1,
   },
@@ -584,6 +914,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FF7F50',
     fontWeight: 'bold',
+    marginTop: 4,
+  },
+  upcomingText: {
+    fontSize: 12,
+    color: '#FFA07A',
+    fontWeight: '600',
     marginTop: 4,
   },
   actionButtons: {
@@ -629,96 +965,91 @@ const styles = StyleSheet.create({
   },
   daysContainer: {
     flexDirection: 'row',
-    paddingVertical: 10,
+    paddingVertical: 5,
   },
   dayItem: {
-    alignItems: 'center',
+    width: 70,
+    height: 90,
     justifyContent: 'center',
-    width: 60,
-    height: 80,
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
     borderRadius: 10,
     marginRight: 10,
-    backgroundColor: '#f9f9f9',
     padding: 10,
   },
   todayItem: {
-    backgroundColor: '#FFF5EE',
-    borderWidth: 2,
-    borderColor: '#FF7F50',
+    backgroundColor: '#FF7F50',
   },
   hasMedsItem: {
-    backgroundColor: '#f9f9f9',
+    borderBottomWidth: 3,
+    borderBottomColor: '#FF7F50',
   },
   dayText: {
     fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#333',
   },
   dateText: {
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
     marginTop: 5,
   },
   todayText: {
-    color: '#FF7F50',
+    color: '#fff',
   },
   medIndicator: {
-    backgroundColor: '#FF7F50',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
     position: 'absolute',
-    top: 5,
-    right: 5,
+    top: 10,
+    right: 10,
+    backgroundColor: '#FF7F50',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   medCount: {
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
   },
-  
-  // Reminder Modal Styles
   reminderContainer: {
     flex: 1,
-    backgroundColor: 'rgba(255, 127, 80, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   reminderContent: {
+    width: '85%',
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 30,
+    borderRadius: 15,
+    padding: 25,
     alignItems: 'center',
-    width: '90%',
-    maxWidth: 400,
     elevation: 5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 5,
+    shadowRadius: 4,
   },
   reminderIconContainer: {
-    backgroundColor: '#fff5ee',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFF5EE',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#FF7F50',
+    marginBottom: 15,
   },
   reminderTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 10,
     textAlign: 'center',
   },
   reminderMedicineName: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#FF7F50',
     marginBottom: 5,
@@ -732,7 +1063,6 @@ const styles = StyleSheet.create({
   },
   reminderTime: {
     fontSize: 16,
-    fontWeight: '500',
     color: '#333',
     marginBottom: 20,
     textAlign: 'center',
@@ -741,16 +1071,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     width: '100%',
-    marginTop: 20,
+    marginTop: 10,
   },
   reminderButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 15,
-    borderRadius: 12,
-    minWidth: 120,
-    marginHorizontal: 10,
+    padding: 12,
+    borderRadius: 10,
+    width: '45%',
   },
   reminderButtonTaken: {
     backgroundColor: '#4CAF50',
@@ -763,6 +1092,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  upcomingReminderContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+    padding: 15,
+  },
+  upcomingReminderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  upcomingReminderIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFF5EE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  upcomingReminderTextContainer: {
+    flex: 1,
+  },
+  upcomingReminderTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  upcomingReminderMedicineName: {
+    fontSize: 14,
+    color: '#FF7F50',
+    fontWeight: '600',
+  },
+  dismissButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
