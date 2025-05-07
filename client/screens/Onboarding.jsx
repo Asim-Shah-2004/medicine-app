@@ -55,13 +55,14 @@ const Onboarding = ({ navigation }) => {
   const [tempMedication, setTempMedication] = useState({
     name: '',
     dosage: '',
-    frequency: '',
-    time_of_day: '',
+    frequency: 'daily',
+    time_of_day: new Date(),
     notes: '',
   });
 
   // Dropdown states
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [genderOpen, setGenderOpen] = useState(false);
   const [genderItems, setGenderItems] = useState([
     { label: 'Male', value: 'male' },
@@ -83,9 +84,52 @@ const Onboarding = ({ navigation }) => {
     { label: 'Unknown', value: 'unknown' },
   ]);
 
+  const [frequencyOpen, setFrequencyOpen] = useState(false);
+  const [frequencyItems, setFrequencyItems] = useState([
+    { label: 'Daily', value: 'daily' },
+    { label: 'Twice Daily', value: 'twice_daily' },
+    { label: 'Weekly', value: 'weekly' },
+    { label: 'Monthly', value: 'monthly' }
+  ]);
+
   // New condition/allergy input fields
   const [newCondition, setNewCondition] = useState('');
   const [newAllergy, setNewAllergy] = useState('');
+
+  // Add state to control zIndex dynamically
+  const [zIndexes, setZIndexes] = useState({
+    gender: 3000,
+    bloodType: 2000,
+    frequency: 1000
+  });
+
+  // Handle dropdown opening
+  const handleOpenGender = (open) => {
+    setGenderOpen(open);
+    setZIndexes({
+      gender: open ? 3000 : 1000,
+      bloodType: open ? 1000 : 2000,
+      frequency: open ? 1000 : 3000
+    });
+  };
+
+  const handleOpenBloodType = (open) => {
+    setBloodTypeOpen(open);
+    setZIndexes({
+      gender: open ? 1000 : 3000,
+      bloodType: open ? 3000 : 1000,
+      frequency: open ? 1000 : 2000
+    });
+  };
+
+  const handleOpenFrequency = (open) => {
+    setFrequencyOpen(open);
+    setZIndexes({
+      gender: open ? 1000 : 3000,
+      bloodType: open ? 1000 : 2000,
+      frequency: open ? 3000 : 1000
+    });
+  };
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -176,6 +220,13 @@ const Onboarding = ({ navigation }) => {
     }
   };
 
+  const handleTimeChange = (event, selectedTime) => {
+    setShowTimePicker(false);
+    if (selectedTime) {
+      setTempMedication({...tempMedication, time_of_day: selectedTime});
+    }
+  };
+
   const addHealthCondition = () => {
     if (newCondition.trim() !== '') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -215,12 +266,21 @@ const Onboarding = ({ navigation }) => {
   const addMedication = () => {
     if (tempMedication.name && tempMedication.dosage && tempMedication.frequency) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setMedications([...medications, {...tempMedication}]);
+      
+      // Format time to string format for display
+      const formattedMedication = {
+        ...tempMedication,
+        time_of_day: tempMedication.time_of_day instanceof Date ? 
+          tempMedication.time_of_day.toISOString() : 
+          tempMedication.time_of_day
+      };
+      
+      setMedications([...medications, formattedMedication]);
       setTempMedication({
         name: '',
         dosage: '',
-        frequency: '',
-        time_of_day: '',
+        frequency: 'daily',
+        time_of_day: new Date(),
         notes: '',
       });
     } else {
@@ -428,6 +488,31 @@ const Onboarding = ({ navigation }) => {
     outputRange: ['0%', '100%'],
   });
 
+  const formatTime = (timeIso) => {
+    try {
+      if (!timeIso) return '';
+      
+      if (timeIso instanceof Date) {
+        return timeIso.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      
+      if (typeof timeIso === 'string') {
+        // Handle ISO string format
+        const date = new Date(timeIso);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        return timeIso; // Just return the string if it's not ISO format
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return '';
+    }
+  };
+
   const renderStepIndicator = () => {
     return (
       <View style={styles.stepIndicator}>
@@ -468,7 +553,7 @@ const Onboarding = ({ navigation }) => {
 
   const renderBasicProfileStep = () => {
     return (
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.scrollContent}>
         <View style={styles.stepHeader}>
           <MaterialCommunityIcons name="account-details" size={28} color="#ff7e5f" />
           <Text style={styles.stepTitle}>Basic Information</Text>
@@ -477,253 +562,79 @@ const Onboarding = ({ navigation }) => {
           Let's start with some basic information about you
         </Text>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Date of Birth</Text>
-          <TouchableOpacity 
-            style={styles.datePickerButton}
-            onPress={() => {
-              Haptics.selectionAsync();
-              setShowDatePicker(true);
-            }}
-          >
-            <Text style={styles.dateText}>
-              {basicProfile.date_of_birth.toLocaleDateString()}
-            </Text>
-            <MaterialCommunityIcons name="calendar" size={20} color="#ff7e5f" />
-          </TouchableOpacity>
-          {showDatePicker && (
-            <DateTimePicker
-              value={basicProfile.date_of_birth}
-              mode="date"
-              display="default"
-              onChange={handleDateChange}
-              maximumDate={new Date()}
-            />
-          )}
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Gender</Text>
-          <DropDownPicker
-            open={genderOpen}
-            value={basicProfile.gender}
-            items={genderItems}
-            setOpen={setGenderOpen}
-            setValue={(callback) => {
-              if (typeof callback === 'function') {
-                setBasicProfile((prev) => ({ ...prev, gender: callback(prev.gender) }));
-              } else {
-                setBasicProfile({ ...basicProfile, gender: callback });
-              }
-              Haptics.selectionAsync();
-            }}
-            setItems={setGenderItems}
-            style={styles.dropdown}
-            dropDownContainerStyle={styles.dropdownContainer}
-            placeholderStyle={styles.placeholderStyle}
-            placeholder="Select gender"
-            zIndex={3000}
-            zIndexInverse={1000}
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Phone Number (Optional)</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="phone" size={20} color="#ff7e5f" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your phone number"
-              value={basicProfile.phone_number}
-              onChangeText={(text) => setBasicProfile({...basicProfile, phone_number: text})}
-              keyboardType="phone-pad"
-            />
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.nextButton}
-          onPress={submitBasicProfile}
-          activeOpacity={0.8}
-          disabled={isLoading}
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+          contentContainerStyle={styles.formContainer}
+          keyboardShouldPersistTaps="handled"
         >
-          <LinearGradient
-            colors={['#ff9966', '#ff5e62']}
-            style={styles.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <>
-                <Text style={styles.nextButtonText}>Continue</Text>
-                <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
-              </>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  };
-
-  const renderHealthProfileStep = () => {
-    return (
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.stepHeader}>
-          <MaterialCommunityIcons name="heart-pulse" size={28} color="#ff7e5f" />
-          <Text style={styles.stepTitle}>Health Information</Text>
-        </View>
-        <Text style={styles.stepDescription}>
-          Tell us about your health conditions and allergies
-        </Text>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Health Conditions</Text>
-          <Text style={styles.helpText}>Add any chronic conditions or important health info</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="hospital-box" size={20} color="#ff7e5f" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter a health condition"
-              value={newCondition}
-              onChangeText={setNewCondition}
-              onSubmitEditing={addHealthCondition}
-              returnKeyType="done"
-            />
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Date of Birth</Text>
             <TouchableOpacity 
-              style={styles.addButton}
-              onPress={addHealthCondition}
+              style={styles.datePickerButton}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setShowDatePicker(true);
+              }}
             >
-              <MaterialCommunityIcons name="plus" size={20} color="white" />
+              <Text style={styles.dateText}>
+                {basicProfile.date_of_birth.toLocaleDateString()}
+              </Text>
+              <MaterialCommunityIcons name="calendar" size={20} color="#ff7e5f" />
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.chipContainer}>
-            {healthProfile.health_conditions.map((condition, index) => (
-              <Chip
-                key={index}
-                style={styles.chip}
-                textStyle={styles.chipText}
-                onClose={() => removeHealthCondition(index)}
-                onPress={() => {}}
-              >
-                {condition}
-              </Chip>
-            ))}
-            {healthProfile.health_conditions.length === 0 && (
-              <Text style={styles.noItemsText}>No conditions added yet</Text>
+            {showDatePicker && (
+              <DateTimePicker
+                value={basicProfile.date_of_birth}
+                mode="date"
+                display="default"
+                onChange={handleDateChange}
+                maximumDate={new Date()}
+              />
             )}
           </View>
-        </View>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Allergies</Text>
-          <Text style={styles.helpText}>Add any allergies to medications, foods, etc.</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="alert-circle" size={20} color="#ff7e5f" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter an allergy"
-              value={newAllergy}
-              onChangeText={setNewAllergy}
-              onSubmitEditing={addAllergy}
-              returnKeyType="done"
-            />
-            <TouchableOpacity 
-              style={styles.addButton}
-              onPress={addAllergy}
-            >
-              <MaterialCommunityIcons name="plus" size={20} color="white" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.chipContainer}>
-            {healthProfile.allergies.map((allergy, index) => (
-              <Chip
-                key={index}
-                style={styles.chip}
-                textStyle={styles.chipText}
-                onClose={() => removeAllergy(index)}
-                onPress={() => {}}
-              >
-                {allergy}
-              </Chip>
-            ))}
-            {healthProfile.allergies.length === 0 && (
-              <Text style={styles.noItemsText}>No allergies added yet</Text>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Height (Optional)</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="human-male-height" size={20} color="#ff7e5f" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your height (cm)"
-              value={healthProfile.height}
-              onChangeText={(text) => setHealthProfile({...healthProfile, height: text})}
-              keyboardType="numeric"
+          <View style={[styles.formGroup, { zIndex: zIndexes.gender }]}>
+            <Text style={styles.label}>Gender</Text>
+            <DropDownPicker
+              open={genderOpen}
+              value={basicProfile.gender}
+              items={genderItems}
+              setOpen={handleOpenGender}
+              setValue={(callback) => {
+                if (typeof callback === 'function') {
+                  setBasicProfile((prev) => ({ ...prev, gender: callback(prev.gender) }));
+                } else {
+                  setBasicProfile({ ...basicProfile, gender: callback });
+                }
+                Haptics.selectionAsync();
+              }}
+              setItems={setGenderItems}
+              style={styles.dropdown}
+              dropDownContainerStyle={styles.dropdownContainer}
+              placeholderStyle={styles.placeholderStyle}
+              placeholder="Select gender"
+              listMode="SCROLLVIEW"
+              scrollViewProps={{ nestedScrollEnabled: true }}
             />
           </View>
-        </View>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Weight (Optional)</Text>
-          <View style={styles.inputContainer}>
-            <MaterialCommunityIcons name="weight" size={20} color="#ff7e5f" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your weight (kg)"
-              value={healthProfile.weight}
-              onChangeText={(text) => setHealthProfile({...healthProfile, weight: text})}
-              keyboardType="numeric"
-            />
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Phone Number (Optional)</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="phone" size={20} color="#ff7e5f" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your phone number"
+                value={basicProfile.phone_number}
+                onChangeText={(text) => setBasicProfile({...basicProfile, phone_number: text})}
+                keyboardType="phone-pad"
+              />
+            </View>
           </View>
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Blood Type (Optional)</Text>
-          <DropDownPicker
-            open={bloodTypeOpen}
-            value={healthProfile.blood_type}
-            items={bloodTypeItems}
-            setOpen={setBloodTypeOpen}
-            setValue={(callback) => {
-              if (typeof callback === 'function') {
-                setHealthProfile((prev) => ({ ...prev, blood_type: callback(prev.blood_type) }));
-              } else {
-                setHealthProfile({ ...healthProfile, blood_type: callback });
-              }
-              Haptics.selectionAsync();
-            }}
-            setItems={setBloodTypeItems}
-            style={styles.dropdown}
-            dropDownContainerStyle={styles.dropdownContainer}
-            placeholderStyle={styles.placeholderStyle}
-            placeholder="Select blood type (if known)"
-            zIndex={1000}
-            zIndexInverse={3000}
-          />
-        </View>
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setCurrentStep(1);
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.nextButton}
-            onPress={submitHealthProfile}
+            onPress={submitBasicProfile}
             activeOpacity={0.8}
             disabled={isLoading}
           >
@@ -743,14 +654,202 @@ const Onboarding = ({ navigation }) => {
               )}
             </LinearGradient>
           </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const renderHealthProfileStep = () => {
+    return (
+      <View style={styles.scrollContent}>
+        <View style={styles.stepHeader}>
+          <MaterialCommunityIcons name="heart-pulse" size={28} color="#ff7e5f" />
+          <Text style={styles.stepTitle}>Health Information</Text>
         </View>
-      </ScrollView>
+        <Text style={styles.stepDescription}>
+          Tell us about your health conditions and allergies
+        </Text>
+
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          nestedScrollEnabled={true}
+          contentContainerStyle={styles.formContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Health Conditions</Text>
+            <Text style={styles.helpText}>Add any chronic conditions or important health info</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="hospital-box" size={20} color="#ff7e5f" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter a health condition"
+                value={newCondition}
+                onChangeText={setNewCondition}
+                onSubmitEditing={addHealthCondition}
+                returnKeyType="done"
+              />
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={addHealthCondition}
+              >
+                <MaterialCommunityIcons name="plus" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.chipContainer}>
+              {healthProfile.health_conditions.map((condition, index) => (
+                <Chip
+                  key={index}
+                  style={styles.chip}
+                  textStyle={styles.chipText}
+                  onClose={() => removeHealthCondition(index)}
+                  onPress={() => {}}
+                >
+                  {condition}
+                </Chip>
+              ))}
+              {healthProfile.health_conditions.length === 0 && (
+                <Text style={styles.noItemsText}>No conditions added yet</Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Allergies</Text>
+            <Text style={styles.helpText}>Add any allergies to medications, foods, etc.</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="alert-circle" size={20} color="#ff7e5f" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter an allergy"
+                value={newAllergy}
+                onChangeText={setNewAllergy}
+                onSubmitEditing={addAllergy}
+                returnKeyType="done"
+              />
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={addAllergy}
+              >
+                <MaterialCommunityIcons name="plus" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.chipContainer}>
+              {healthProfile.allergies.map((allergy, index) => (
+                <Chip
+                  key={index}
+                  style={styles.chip}
+                  textStyle={styles.chipText}
+                  onClose={() => removeAllergy(index)}
+                  onPress={() => {}}
+                >
+                  {allergy}
+                </Chip>
+              ))}
+              {healthProfile.allergies.length === 0 && (
+                <Text style={styles.noItemsText}>No allergies added yet</Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Height (Optional)</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="human-male-height" size={20} color="#ff7e5f" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your height (cm)"
+                value={healthProfile.height}
+                onChangeText={(text) => setHealthProfile({...healthProfile, height: text})}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Weight (Optional)</Text>
+            <View style={styles.inputContainer}>
+              <MaterialCommunityIcons name="weight" size={20} color="#ff7e5f" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your weight (kg)"
+                value={healthProfile.weight}
+                onChangeText={(text) => setHealthProfile({...healthProfile, weight: text})}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+
+          <View style={[styles.formGroup, { zIndex: zIndexes.bloodType }]}>
+            <Text style={styles.label}>Blood Type (Optional)</Text>
+            <DropDownPicker
+              open={bloodTypeOpen}
+              value={healthProfile.blood_type}
+              items={bloodTypeItems}
+              setOpen={handleOpenBloodType}
+              setValue={(callback) => {
+                if (typeof callback === 'function') {
+                  setHealthProfile((prev) => ({ ...prev, blood_type: callback(prev.blood_type) }));
+                } else {
+                  setHealthProfile({ ...healthProfile, blood_type: callback });
+                }
+                Haptics.selectionAsync();
+              }}
+              setItems={setBloodTypeItems}
+              style={styles.dropdown}
+              dropDownContainerStyle={styles.dropdownContainer}
+              placeholderStyle={styles.placeholderStyle}
+              placeholder="Select blood type (if known)"
+              listMode="SCROLLVIEW"
+              scrollViewProps={{ nestedScrollEnabled: true }}
+            />
+          </View>
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setCurrentStep(1);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.nextButton}
+              onPress={submitHealthProfile}
+              activeOpacity={0.8}
+              disabled={isLoading}
+            >
+              <LinearGradient
+                colors={['#ff9966', '#ff5e62']}
+                style={styles.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <>
+                    <Text style={styles.nextButtonText}>Continue</Text>
+                    <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
     );
   };
 
   const renderMedicationsStep = () => {
     return (
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <View style={styles.scrollContent}>
         <View style={styles.stepHeader}>
           <MaterialCommunityIcons name="pill" size={28} color="#ff7e5f" />
           <Text style={styles.stepTitle}>Medications</Text>
@@ -759,177 +858,210 @@ const Onboarding = ({ navigation }) => {
           Add medications you're currently taking
         </Text>
 
-        <View style={styles.medicationCard}>
-          <Text style={styles.cardTitle}>Add Medication</Text>
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Medication Name*</Text>
-            <View style={styles.inputContainer}>
-              <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter medication name"
-                value={tempMedication.name}
-                onChangeText={(text) => setTempMedication({...tempMedication, name: text})}
-              />
-            </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Dosage*</Text>
-            <View style={styles.inputContainer}>
-              <MaterialCommunityIcons name="scale" size={20} color="#ff7e5f" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter dosage (e.g., 50mg)"
-                value={tempMedication.dosage}
-                onChangeText={(text) => setTempMedication({...tempMedication, dosage: text})}
-              />
-            </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Frequency*</Text>
-            <View style={styles.inputContainer}>
-              <MaterialCommunityIcons name="calendar-clock" size={20} color="#ff7e5f" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="How often? (e.g., twice daily)"
-                value={tempMedication.frequency}
-                onChangeText={(text) => setTempMedication({...tempMedication, frequency: text})}
-              />
-            </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Time of Day (Optional)</Text>
-            <View style={styles.inputContainer}>
-              <MaterialCommunityIcons name="clock-outline" size={20} color="#ff7e5f" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="When to take? (e.g., morning, before meals)"
-                value={tempMedication.time_of_day}
-                onChangeText={(text) => setTempMedication({...tempMedication, time_of_day: text})}
-              />
-            </View>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Notes (Optional)</Text>
-            <View style={styles.inputContainer}>
-              <MaterialCommunityIcons name="text" size={20} color="#ff7e5f" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Any special instructions"
-                value={tempMedication.notes}
-                onChangeText={(text) => setTempMedication({...tempMedication, notes: text})}
-                multiline
-              />
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.addMedicationButton}
-            onPress={addMedication}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={['#ff9966', '#ff5e62']}
-              style={styles.gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              <Text style={styles.nextButtonText}>Add Medication</Text>
-              <MaterialCommunityIcons name="plus" size={20} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.medicationListHeader}>Your Medications ({medications.length})</Text>
-        
-        {medications.length === 0 ? (
-          <View style={styles.emptyMedicationList}>
-            <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
-            <Text style={styles.emptyListText}>No medications added yet</Text>
-            <Text style={styles.emptyListSubText}>Add at least one medication to continue</Text>
-          </View>
-        ) : (
-          <View style={styles.medicationList}>
-            {medications.map((med, index) => (
-              <View key={index} style={styles.medicationItem}>
-                <View style={styles.medicationDetails}>
-                  <View style={styles.medicationNameContainer}>
-                    <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" />
-                    <Text style={styles.medicationName}>{med.name}</Text>
-                  </View>
-                  <View style={styles.medicationInfoRow}>
-                    <Text style={styles.medicationInfoLabel}>Dosage:</Text>
-                    <Text style={styles.medicationInfoValue}>{med.dosage}</Text>
-                  </View>
-                  <View style={styles.medicationInfoRow}>
-                    <Text style={styles.medicationInfoLabel}>Frequency:</Text>
-                    <Text style={styles.medicationInfoValue}>{med.frequency}</Text>
-                  </View>
-                  {med.time_of_day ? (
-                    <View style={styles.medicationInfoRow}>
-                      <Text style={styles.medicationInfoLabel}>Time:</Text>
-                      <Text style={styles.medicationInfoValue}>{med.time_of_day}</Text>
-                    </View>
-                  ) : null}
-                  {med.notes ? (
-                    <View style={styles.medicationNotes}>
-                      <Text style={styles.medicationInfoLabel}>Notes:</Text>
-                      <Text style={styles.medicationInfoValue}>{med.notes}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <TouchableOpacity
-                  style={styles.removeMedicationButton}
-                  onPress={() => removeMedication(index)}
-                >
-                  <MaterialCommunityIcons name="delete" size={20} color="#ff5e62" />
-                </TouchableOpacity>
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled={true}
+          contentContainerStyle={styles.formContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.medicationCard}>
+            <Text style={styles.cardTitle}>Add Medication</Text>
+            
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Medication Name*</Text>
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter medication name"
+                  value={tempMedication.name}
+                  onChangeText={(text) => setTempMedication({...tempMedication, name: text})}
+                />
               </View>
-            ))}
-          </View>
-        )}
+            </View>
 
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setCurrentStep(2);
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Dosage*</Text>
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons name="scale" size={20} color="#ff7e5f" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter dosage (e.g., 50mg)"
+                  value={tempMedication.dosage}
+                  onChangeText={(text) => setTempMedication({...tempMedication, dosage: text})}
+                />
+              </View>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.nextButton, medications.length === 0 && styles.disabledButton]}
-            onPress={submitMedications}
-            activeOpacity={0.8}
-            disabled={isLoading || medications.length === 0}
-          >
-            <LinearGradient
-              colors={medications.length === 0 ? ['#ccc', '#aaa'] : ['#ff9966', '#ff5e62']}
-              style={styles.gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <>
-                  <Text style={styles.nextButtonText}>Finish</Text>
-                  <MaterialCommunityIcons name="check" size={20} color="white" />
-                </>
+            <View style={[styles.formGroup, { zIndex: zIndexes.frequency }]}>
+              <Text style={styles.label}>Frequency*</Text>
+              <DropDownPicker
+                open={frequencyOpen}
+                value={tempMedication.frequency}
+                items={frequencyItems}
+                setOpen={handleOpenFrequency}
+                setValue={(callback) => {
+                  if (typeof callback === 'function') {
+                    setTempMedication((prev) => ({ ...prev, frequency: callback(prev.frequency) }));
+                  } else {
+                    setTempMedication({ ...tempMedication, frequency: callback });
+                  }
+                  Haptics.selectionAsync();
+                }}
+                setItems={setFrequencyItems}
+                style={styles.dropdown}
+                dropDownContainerStyle={styles.dropdownContainer}
+                placeholderStyle={styles.placeholderStyle}
+                placeholder="Select frequency"
+                listMode="SCROLLVIEW"
+                scrollViewProps={{ nestedScrollEnabled: true }}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Time of Day*</Text>
+              <TouchableOpacity 
+                style={styles.datePickerButton}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setShowTimePicker(true);
+                }}
+              >
+                <Text style={styles.dateText}>
+                  {formatTime(tempMedication.time_of_day)}
+                </Text>
+                <MaterialCommunityIcons name="clock-outline" size={20} color="#ff7e5f" />
+              </TouchableOpacity>
+              {showTimePicker && (
+                <DateTimePicker
+                  value={tempMedication.time_of_day instanceof Date ? 
+                    tempMedication.time_of_day : new Date()}
+                  mode="time"
+                  display="default"
+                  onChange={handleTimeChange}
+                />
               )}
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Notes (Optional)</Text>
+              <View style={styles.inputContainer}>
+                <MaterialCommunityIcons name="text" size={20} color="#ff7e5f" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Any special instructions"
+                  value={tempMedication.notes}
+                  onChangeText={(text) => setTempMedication({...tempMedication, notes: text})}
+                  multiline
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.addMedicationButton}
+              onPress={addMedication}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['#ff9966', '#ff5e62']}
+                style={styles.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <Text style={styles.nextButtonText}>Add Medication</Text>
+                <MaterialCommunityIcons name="plus" size={20} color="white" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.medicationListHeader}>Your Medications ({medications.length})</Text>
+          
+          {medications.length === 0 ? (
+            <View style={styles.emptyMedicationList}>
+              <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
+              <Text style={styles.emptyListText}>No medications added yet</Text>
+              <Text style={styles.emptyListSubText}>Add at least one medication to continue</Text>
+            </View>
+          ) : (
+            <View style={styles.medicationList}>
+              {medications.map((med, index) => (
+                <View key={index} style={styles.medicationItem}>
+                  <View style={styles.medicationDetails}>
+                    <View style={styles.medicationNameContainer}>
+                      <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" />
+                      <Text style={styles.medicationName}>{med.name}</Text>
+                    </View>
+                    <View style={styles.medicationInfoRow}>
+                      <Text style={styles.medicationInfoLabel}>Dosage:</Text>
+                      <Text style={styles.medicationInfoValue}>{med.dosage}</Text>
+                    </View>
+                    <View style={styles.medicationInfoRow}>
+                      <Text style={styles.medicationInfoLabel}>Frequency:</Text>
+                      <Text style={styles.medicationInfoValue}>{
+                        frequencyItems.find(item => item.value === med.frequency)?.label || med.frequency
+                      }</Text>
+                    </View>
+                    {med.time_of_day ? (
+                      <View style={styles.medicationInfoRow}>
+                        <Text style={styles.medicationInfoLabel}>Time:</Text>
+                        <Text style={styles.medicationInfoValue}>{formatTime(med.time_of_day)}</Text>
+                      </View>
+                    ) : null}
+                    {med.notes ? (
+                      <View style={styles.medicationNotes}>
+                        <Text style={styles.medicationInfoLabel}>Notes:</Text>
+                        <Text style={styles.medicationInfoValue}>{med.notes}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.removeMedicationButton}
+                    onPress={() => removeMedication(index)}
+                  >
+                    <MaterialCommunityIcons name="delete" size={20} color="#ff5e62" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setCurrentStep(2);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.backButtonText}>Back</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.nextButton, medications.length === 0 && styles.disabledButton]}
+              onPress={submitMedications}
+              activeOpacity={0.8}
+              disabled={isLoading || medications.length === 0}
+            >
+              <LinearGradient
+                colors={medications.length === 0 ? ['#ccc', '#aaa'] : ['#ff9966', '#ff5e62']}
+                style={styles.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <>
+                    <Text style={styles.nextButtonText}>Finish</Text>
+                    <MaterialCommunityIcons name="check" size={20} color="white" />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
     );
   };
 
@@ -1016,6 +1148,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 30,
+  },
+  formContainer: {
+    paddingBottom: 40,
   },
   stepHeader: {
     flexDirection: 'row',
