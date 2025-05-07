@@ -36,6 +36,7 @@ const Home = () => {
   const [currentReminder, setCurrentReminder] = useState(null);
   const [upcomingReminder, setUpcomingReminder] = useState(null);
   const [activeReminders, setActiveReminders] = useState([]);
+  const [dismissedReminders, setDismissedReminders] = useState([]); // Track dismissed reminders
   const reminderOpacity = useRef(new Animated.Value(0)).current;
   const upcomingReminderOpacity = useRef(new Animated.Value(0)).current;
   const sound = useRef(null);
@@ -47,38 +48,43 @@ const Home = () => {
       
       if (!token) {
         navigation.navigate('Login');
-        return;
+        return [];
       }
 
-      const userResponse = await axios.get(`${SERVER_URL}/api/user/profile`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      try {
+        const userResponse = await axios.get(`${SERVER_URL}/api/user/profile`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
 
-      // Extract medications from user profile
-      const userMedications = userResponse.data.medications || [];
-      
-      // Transform user medications to the format expected by the app
-      const transformedMedications = userMedications.map((med, index) => {
-        // Parse the time_of_day to extract time
-        const medDate = new Date(med.time_of_day);
-        const hours = medDate.getHours().toString().padStart(2, '0');
-        const minutes = medDate.getMinutes().toString().padStart(2, '0');
-        const timeString = `${hours}:${minutes}`;
+        // Extract medications from user profile
+        const userMedications = userResponse.data.medications || [];
+        
+        // Transform user medications to the format expected by the app
+        const transformedMedications = userMedications.map((med, index) => {
+          // Parse the time_of_day to extract time
+          const medDate = new Date(med.time_of_day);
+          const hours = medDate.getHours().toString().padStart(2, '0');
+          const minutes = medDate.getMinutes().toString().padStart(2, '0');
+          const timeString = `${hours}:${minutes}`;
 
-        return {
-          _id: `onboarding-med-${index}`, // Create a temporary ID
-          name: med.name,
-          dosage: med.dosage,
-          time: timeString,
-          frequency: med.frequency,
-          notes: med.notes,
-          last_status: false // Default to not taken
-        };
-      });
+          return {
+            _id: `onboarding-med-${index}`, // Create a temporary ID
+            name: med.name,
+            dosage: med.dosage,
+            time: timeString,
+            frequency: med.frequency,
+            notes: med.notes,
+            last_status: false // Default to not taken
+          };
+        });
 
-      return transformedMedications;
+        return transformedMedications;
+      } catch (error) {
+        console.log('Error fetching user profile, continuing without profile data:', error);
+        return []; // Continue without profile data
+      }
     } catch (error) {
-      console.error('Error fetching user medications:', error);
+      console.error('Error in fetchUserMedications:', error);
       return [];
     }
   };
@@ -90,20 +96,33 @@ const Home = () => {
       
       if (!token) {
         navigation.navigate('Login');
-        return;
+        return { medicines: [] };
       }
 
       // First check if we have medications from onboarding
       const onboardingMedications = await fetchUserMedications();
 
-      // Get today's medicines
-      const todayResponse = await axios.get(`${SERVER_URL}/api/user/medicines/today`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // Use Promise.allSettled to handle partial failures
+      const responses = await Promise.allSettled([
+        axios.get(`${SERVER_URL}/api/user/medicines/today`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${SERVER_URL}/api/user/medicines/progress`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${SERVER_URL}/api/user/medicines/schedule`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+
+      // Process today's medicines
+      let todayMeds = [];
+      if (responses[0].status === 'fulfilled') {
+        todayMeds = responses[0].value.data.medicines || [];
+      }
 
       // Combine onboarding medications with today's medicines
-      // Only include onboarding medications if they're not already in today's medicines
-      const combinedMedications = [...todayResponse.data.medicines];
+      const combinedMedications = [...todayMeds];
       
       if (onboardingMedications.length > 0) {
         // Add onboarding medications that aren't already in today's medicines
@@ -129,21 +148,32 @@ const Home = () => {
         return timeA[1] - timeB[1]; // Sort by minute
       });
 
-      // Get progress data
-      const progressResponse = await axios.get(`${SERVER_URL}/api/user/medicines/progress`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // Process progress data
+      let progressData = { total: 0, completed: 0, progress: 0 };
+      if (responses[1].status === 'fulfilled') {
+        progressData = responses[1].value.data;
+      } else {
+        // Calculate progress from combined medications if API failed
+        const total = combinedMedications.length;
+        const completed = combinedMedications.filter(med => med.last_status).length;
+        progressData = {
+          total,
+          completed,
+          progress: total > 0 ? (completed / total) * 100 : 0
+        };
+      }
 
-      // Get schedule data for the week
-      const scheduleResponse = await axios.get(`${SERVER_URL}/api/user/medicines/schedule`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      // Process schedule data
+      let scheduleData = {};
+      if (responses[2].status === 'fulfilled') {
+        scheduleData = responses[2].value.data.schedule || {};
+      }
 
       const firstMedicationTime = combinedMedications.length > 0 ? combinedMedications[0].time : null;
 
       setTodayMedicines(combinedMedications);
-      setProgress(progressResponse.data);
-      setSchedule(scheduleResponse.data.schedule);
+      setProgress(progressData);
+      setSchedule(scheduleData);
       setLoading(false);
       setRefreshing(false);
       
@@ -156,6 +186,7 @@ const Home = () => {
       setLoading(false);
       setRefreshing(false);
       
+      // Check for authentication errors
       if (error.response && error.response.status === 401) {
         Alert.alert('Session Expired', 'Please login again');
         navigation.navigate('Login');
@@ -176,17 +207,44 @@ const Home = () => {
     try {
       const token = await AsyncStorage.getItem('accessToken');
       
-      await axios.post(
-        `${SERVER_URL}/api/user/medicines/${medicineId}/status`,
-        { completed },
-        { headers: { Authorization: `Bearer ${token}` }}
+      // Update local state optimistically
+      setTodayMedicines(prev => 
+        prev.map(med => 
+          med._id === medicineId ? { ...med, last_status: completed } : med
+        )
       );
 
-      // Refresh data after updating
+      // Calculate progress optimistically
+      const total = todayMedicines.length;
+      const updatedCompleted = todayMedicines.reduce((count, med) => {
+        if (med._id === medicineId) {
+          return completed ? count + 1 : count;
+        }
+        return med.last_status ? count + 1 : count;
+      }, 0);
+      
+      setProgress(prev => ({
+        ...prev,
+        completed: updatedCompleted,
+        progress: total > 0 ? (updatedCompleted / total) * 100 : 0
+      }));
+
+      // Send the update to the server
+      if (!medicineId.startsWith('onboarding-med-')) {
+        await axios.post(
+          `${SERVER_URL}/api/user/medicines/${medicineId}/status`,
+          { completed },
+          { headers: { Authorization: `Bearer ${token}` }}
+        );
+      }
+
+      // Refresh data after updating to ensure consistency
       fetchData();
     } catch (error) {
       console.error('Error updating medicine status:', error);
-      Alert.alert('Error', 'Failed to update medicine status');
+      // Rollback changes if the server request failed
+      fetchData();
+      Alert.alert('Error', 'Failed to update medicine status. Please try again.');
     }
   };
 
@@ -331,6 +389,9 @@ const Home = () => {
   // Handle medicine reminder response
   const handleReminderResponse = async (taken) => {
     if (currentReminder) {
+      // Add to dismissed reminders list to prevent it from showing again
+      setDismissedReminders(prev => [...prev, currentReminder._id]);
+      
       // Animate out
       Animated.timing(reminderOpacity, {
         toValue: 0,
@@ -356,6 +417,7 @@ const Home = () => {
           isDueNow(med.time) && 
           !med.last_status && 
           !activeReminders.includes(med._id) &&
+          !dismissedReminders.includes(med._id) &&
           med._id !== currentReminder._id
         );
         
@@ -374,6 +436,11 @@ const Home = () => {
 
   // Handle upcoming reminder dismissal
   const dismissUpcomingReminder = () => {
+    if (upcomingReminder) {
+      // Add to dismissed reminders list to prevent it from showing again
+      setDismissedReminders(prev => [...prev, upcomingReminder._id]);
+    }
+    
     // Animate out
     Animated.timing(upcomingReminderOpacity, {
       toValue: 0,
@@ -398,6 +465,11 @@ const Home = () => {
 
   // Show reminder for specific medicine
   const showReminderForMedicine = (medicine) => {
+    // Check if this medicine is already dismissed
+    if (dismissedReminders.includes(medicine._id)) {
+      return;
+    }
+    
     // Set current reminder
     setCurrentReminder(medicine);
     
@@ -420,6 +492,11 @@ const Home = () => {
 
   // Show upcoming reminder for medicine
   const showUpcomingReminderForMedicine = (medicine) => {
+    // Check if this medicine is already dismissed
+    if (dismissedReminders.includes(medicine._id)) {
+      return;
+    }
+    
     // Set upcoming reminder
     setUpcomingReminder(medicine);
     
@@ -449,7 +526,8 @@ const Home = () => {
     const dueMedicines = todayMedicines.filter(medicine => 
       isDueNow(medicine.time) && 
       !medicine.last_status && 
-      !activeReminders.includes(medicine._id)
+      !activeReminders.includes(medicine._id) &&
+      !dismissedReminders.includes(medicine._id)
     );
     
     if (dueMedicines.length > 0) {
@@ -463,14 +541,23 @@ const Home = () => {
       const upcomingMedicines = todayMedicines.filter(medicine => 
         isUpcoming(medicine.time) && 
         !medicine.last_status && 
-        !activeReminders.includes(medicine._id)
+        !activeReminders.includes(medicine._id) &&
+        !dismissedReminders.includes(medicine._id)
       );
       
       if (upcomingMedicines.length > 0) {
         showUpcomingReminderForMedicine(upcomingMedicines[0]);
       }
     }
-  }, [todayMedicines, reminderVisible, upcomingReminderVisible, activeReminders]);
+  }, [todayMedicines, reminderVisible, upcomingReminderVisible, activeReminders, dismissedReminders]);
+
+  // Reset dismissed reminders at midnight
+  const resetDismissedRemindersAtMidnight = useCallback(() => {
+    const now = new Date();
+    if (now.getHours() === 0 && now.getMinutes() === 0) {
+      setDismissedReminders([]);
+    }
+  }, []);
 
   // Setup polling and check for medicine alerts
   useEffect(() => {
@@ -495,6 +582,7 @@ const Home = () => {
       const intervalId = setInterval(() => {
         setCurrentTime(new Date());
         checkMedicines();
+        resetDismissedRemindersAtMidnight();
       }, 5000);
       
       return () => {
@@ -753,40 +841,26 @@ const Home = () => {
       >
         <Animated.View 
           style={[
-            styles.upcomingReminderContainer,
+            styles.upcomingReminder,
             { opacity: upcomingReminderOpacity }
           ]}
         >
           <View style={styles.upcomingReminderContent}>
-            <View style={styles.upcomingReminderIconContainer}>
-              <Ionicons name="time-outline" size={40} color="#FF7F50" />
+            <View style={styles.upcomingIconContainer}>
+              <Ionicons name="time-outline" size={40} color="#4682B4" />
             </View>
-            <View style={styles.upcomingReminderTextContainer}>
-              <Text style={styles.upcomingReminderTitle}>Medication Reminder</Text>
-              {upcomingReminder && (
-                <>
-                  <Text style={styles.upcomingReminderMedicineName}>
-                    {upcomingReminder.name} in {
-                      (() => {
-                        const [hours, minutes] = upcomingReminder.time.split(':');
-                        const medicineTime = new Date();
-                        medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
-                        
-                        const now = new Date();
-                        const timeDiff = Math.floor((medicineTime - now) / (1000 * 60));
-                        
-                        return `${timeDiff} mins`;
-                      })()
-                    }
-                  </Text>
-                </>
-              )}
-            </View>
+            <Text style={styles.upcomingReminderTitle}>Medicine Coming Up</Text>
+            {upcomingReminder && (
+              <>
+                <Text style={styles.upcomingMedicineName}>{upcomingReminder.name}</Text>
+                <Text style={styles.upcomingTime}>{formatTime(upcomingReminder.time)}</Text>
+              </>
+            )}
             <TouchableOpacity 
               style={styles.dismissButton}
               onPress={dismissUpcomingReminder}
             >
-              <Ionicons name="close" size={20} color="#666" />
+              <Text style={styles.dismissButtonText}>Dismiss</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -795,31 +869,34 @@ const Home = () => {
   );
 };
 
+const { width, height } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f8f8',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f8f8',
   },
   loadingText: {
     marginTop: 10,
+    color: '#666',
     fontSize: 16,
-    color: '#333',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingTop: 10,
+    paddingBottom: 15,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#eee',
   },
   headerTitle: {
     fontSize: 24,
@@ -828,74 +905,83 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: '#FF7F50',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
+    elevation: 3,
   },
   progressContainer: {
-    padding: 20,
     backgroundColor: '#fff',
+    padding: 20,
+    marginHorizontal: 15,
+    marginTop: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 10,
     color: '#333',
+    marginBottom: 15,
   },
   progressBarContainer: {
-    height: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
+    height: 16,
+    backgroundColor: '#eee',
+    borderRadius: 8,
     overflow: 'hidden',
-    marginVertical: 10,
   },
   progressBar: {
     height: '100%',
     backgroundColor: '#FF7F50',
-    borderRadius: 6,
+    borderRadius: 8,
   },
   progressText: {
+    marginTop: 10,
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
-    marginTop: 5,
   },
   todayContainer: {
-    padding: 20,
     backgroundColor: '#fff',
-    borderTopWidth: 8,
-    borderTopColor: '#f8f8f8',
+    padding: 20,
+    marginHorizontal: 15,
+    marginTop: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   medicineCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    padding: 15,
+    paddingVertical: 15,
+    paddingHorizontal: 15,
     marginBottom: 10,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ccc',
   },
   dueMedicineCard: {
-    backgroundColor: '#FFF5EE',
-    borderLeftWidth: 5,
     borderLeftColor: '#FF7F50',
+    backgroundColor: '#FFF5F0',
   },
   upcomingMedicineCard: {
-    backgroundColor: '#FFF8F5',
-    borderLeftWidth: 3,
-    borderLeftColor: '#FFA07A',
+    borderLeftColor: '#4682B4',
+    backgroundColor: '#F0F8FF',
   },
   medicineInfo: {
     flex: 1,
@@ -912,19 +998,17 @@ const styles = StyleSheet.create({
   },
   medicineTime: {
     fontSize: 14,
-    color: '#FF7F50',
-    fontWeight: 'bold',
+    color: '#888',
     marginTop: 4,
   },
   upcomingText: {
+    color: '#4682B4',
     fontSize: 12,
-    color: '#FFA07A',
-    fontWeight: '600',
     marginTop: 4,
+    fontWeight: '500',
   },
   actionButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
   },
   statusButton: {
     width: 40,
@@ -932,25 +1016,31 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
   },
   takenButton: {
     backgroundColor: '#4CAF50',
   },
   notTakenButton: {
-    backgroundColor: '#FF5252',
+    backgroundColor: '#F44336',
   },
   noMedicineText: {
     textAlign: 'center',
-    color: '#999',
-    fontSize: 16,
+    color: '#888',
     padding: 20,
+    fontStyle: 'italic',
   },
   weeklyPreviewContainer: {
-    padding: 20,
     backgroundColor: '#fff',
-    borderTopWidth: 8,
-    borderTopColor: '#f8f8f8',
+    padding: 20,
+    marginHorizontal: 15,
+    marginTop: 20,
+    marginBottom: 30,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   weeklyHeader: {
     flexDirection: 'row',
@@ -961,48 +1051,47 @@ const styles = StyleSheet.create({
   viewAllText: {
     color: '#FF7F50',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   daysContainer: {
     flexDirection: 'row',
-    paddingVertical: 5,
   },
   dayItem: {
-    width: 70,
-    height: 90,
+    width: 60,
+    height: 80,
+    marginRight: 10,
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    marginRight: 10,
     padding: 10,
   },
   todayItem: {
     backgroundColor: '#FF7F50',
   },
   hasMedsItem: {
-    borderBottomWidth: 3,
-    borderBottomColor: '#FF7F50',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   dayText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: '500',
+    color: '#666',
   },
   dateText: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    marginTop: 5,
+    marginTop: 4,
   },
   todayText: {
     color: '#fff',
   },
   medIndicator: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: '#FF7F50',
+    bottom: -5,
+    right: -5,
+    backgroundColor: '#4682B4',
     width: 20,
     height: 20,
     borderRadius: 10,
@@ -1011,7 +1100,7 @@ const styles = StyleSheet.create({
   },
   medCount: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 'bold',
   },
   reminderContainer: {
@@ -1021,71 +1110,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   reminderContent: {
-    width: '85%',
     backgroundColor: '#fff',
-    borderRadius: 15,
+    width: width * 0.85,
     padding: 25,
+    borderRadius: 15,
     alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
   reminderIconContainer: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#FFF5EE',
+    backgroundColor: '#FFF5F0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   reminderTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 10,
     textAlign: 'center',
+    marginBottom: 15,
   },
   reminderMedicineName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#FF7F50',
     marginBottom: 5,
-    textAlign: 'center',
   },
   reminderDosage: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#666',
     marginBottom: 5,
-    textAlign: 'center',
   },
   reminderTime: {
     fontSize: 16,
+    fontWeight: '500',
     color: '#333',
-    marginBottom: 20,
-    textAlign: 'center',
+    marginBottom: 25,
   },
   reminderActions: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     width: '100%',
-    marginTop: 10,
   },
   reminderButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    borderRadius: 10,
-    width: '45%',
+    paddingVertical: 12,
+    borderRadius: 8,
+    width: '48%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    elevation: 2,
   },
   reminderButtonTaken: {
     backgroundColor: '#4CAF50',
   },
   reminderButtonSkip: {
-    backgroundColor: '#FF5252',
+    backgroundColor: '#F44336',
   },
   reminderButtonText: {
     color: '#fff',
@@ -1093,56 +1179,56 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
-  upcomingReminderContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    padding: 15,
+  upcomingReminder: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   upcomingReminderContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    width: width * 0.8,
+    padding: 20,
+    borderRadius: 15,
+    alignItems: 'center',
   },
-  upcomingReminderIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFF5EE',
+  upcomingIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#F0F8FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
-  },
-  upcomingReminderTextContainer: {
-    flex: 1,
+    marginBottom: 15,
   },
   upcomingReminderTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 15,
   },
-  upcomingReminderMedicineName: {
-    fontSize: 14,
-    color: '#FF7F50',
-    fontWeight: '600',
+  upcomingMedicineName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4682B4',
+    marginBottom: 5,
+  },
+  upcomingTime: {
+    fontSize: 15,
+    color: '#666',
+    marginBottom: 20,
   },
   dismissButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#eee',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
+  dismissButtonText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '500',
+  }
 });
 
 export default Home;
