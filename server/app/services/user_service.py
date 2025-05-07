@@ -244,37 +244,41 @@ class UserService:
         Mark a medicine as taken or not taken
         Returns (success, data, status_code)
         """
-        db = get_db()
-        
-        # First check if the medicine is for today
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Check if the medicine was already taken today
-        user = db.users.find_one(
-            {
-                '_id': ObjectId(user_id),
-                'medicines._id': ObjectId(medicine_id)
-            },
-            {'medicines.$': 1}
-        )
-        
-        if not user or 'medicines' not in user or len(user['medicines']) == 0:
-            return False, "Medicine not found", 404
-        
-        medicine = user['medicines'][0]
-        
-        # Check if medicine is already marked as taken today
-        for entry in medicine.get('history', []):
-            if entry.get('date') == today and entry.get('completed', False):
-                return False, "Medicine already taken today and cannot be modified", 400
-        
-        # Call the model to update the status
-        success = User.update_medicine_status(user_id, medicine_id, completed)
-        
-        if not success:
-            return False, "Failed to update medicine status", 500
-        
-        return True, {"message": "Medicine status updated successfully"}, 200
+        try:
+            db = get_db()
+            
+            # First check if the medicine exists
+            user = db.users.find_one(
+                {
+                    '_id': ObjectId(user_id),
+                    'medicines._id': ObjectId(medicine_id)
+                },
+                {'medicines.$': 1}
+            )
+            
+            if not user or 'medicines' not in user or len(user['medicines']) == 0:
+                return False, "Medicine not found", 404
+            
+            medicine = user['medicines'][0]
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # Check if medicine is already marked as taken today and we're trying to mark it again
+            if completed:
+                for entry in medicine.get('history', []):
+                    if entry.get('date') == today and entry.get('completed', False):
+                        # Already marked as taken, return success instead of error
+                        return True, {"message": "Medicine already marked as taken today"}, 200
+            
+            # Call the model to update the status
+            success = User.update_medicine_status(user_id, medicine_id, completed)
+            
+            if not success:
+                return False, "Failed to update medicine status", 500
+            
+            return True, {"message": "Medicine status updated successfully"}, 200
+        except Exception as e:
+            print(f"Exception in update_medicine_status: {str(e)}")
+            return False, f"An error occurred: {str(e)}", 500
     
     @staticmethod
     def get_medicine_schedule(user_id, start_date=None, end_date=None):

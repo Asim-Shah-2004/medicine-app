@@ -146,53 +146,61 @@ class User:
     @staticmethod
     def update_medicine_status(user_id, medicine_id, completed):
         """
-        Update the completion status of a medicine and add to history
+        Mark a medicine as taken or not taken
+        
+        Args:
+            user_id: The ID of the user
+            medicine_id: The ID of the medicine
+            completed: Boolean indicating if medicine was taken
+        
+        Returns:
+            bool: True if successfully updated, False otherwise
         """
-        db = get_db()
-        
-        # First check if the medicine already has a history entry for today
-        today = datetime.utcnow().strftime('%Y-%m-%d')
-        
-        user = db.users.find_one(
-            {
-                '_id': ObjectId(user_id),
-                'medicines._id': ObjectId(medicine_id),
-            },
-            {'medicines.$': 1}
-        )
-        
-        if not user or 'medicines' not in user or len(user['medicines']) == 0:
-            return False
-        
-        medicine = user['medicines'][0]
-        
-        # Check if this medicine was already marked as taken today
-        # If so, we don't allow changing its status again
-        for entry in medicine.get('history', []):
-            if entry.get('date') == today and entry.get('completed', False):
-                # If already marked as taken, don't allow changes
-                return False
-        
-        # Create history entry
-        history_entry = {
-            'date': today,
-            'timestamp': datetime.utcnow(),
-            'completed': completed
-        }
-        
-        # Add entry to history and update last_status
-        result = db.users.update_one(
-            {
-                '_id': ObjectId(user_id),
-                'medicines._id': ObjectId(medicine_id)
-            },
-            {
-                '$push': {'medicines.$.history': history_entry},
-                '$set': {'medicines.$.last_status': completed}
+        try:
+            db = get_db()
+            today = datetime.now().strftime('%Y-%m-%d')
+            current_time = datetime.now().strftime('%H:%M')
+            
+            # Prepare the history entry
+            history_entry = {
+                'date': today,
+                'time': current_time,
+                'completed': completed
             }
-        )
-        
-        return result.modified_count > 0
+            
+            # Find the medicine in user's medicines array
+            user = db.users.find_one(
+                {
+                    '_id': ObjectId(user_id),
+                    'medicines._id': ObjectId(medicine_id)
+                }
+            )
+            
+            if not user:
+                return False
+                
+            # Check if there's an entry for today and update it, or add a new one
+            result = db.users.update_one(
+                {
+                    '_id': ObjectId(user_id),
+                    'medicines._id': ObjectId(medicine_id)
+                },
+                {
+                    '$push': {
+                        'medicines.$.history': history_entry
+                    },
+                    '$set': {
+                        'medicines.$.last_status': completed,
+                        'medicines.$.last_taken': datetime.now() if completed else None
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error updating medicine status: {str(e)}")
+            return False
 
 """
 Example Medicine Schema:
@@ -215,6 +223,7 @@ Example Medicine Schema:
             "completed": true
         }
     ],
-    "last_status": true  # Quick access to last completion status
+    "last_status": true,  # Quick access to last completion status
+    "last_taken": datetime  # Timestamp of last taken medicine
 }
 """

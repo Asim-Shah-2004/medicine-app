@@ -140,36 +140,59 @@ const Home = () => {
     try {
       const token = await AsyncStorage.getItem('accessToken');
       
-      // Update local state by removing the taken medicine
+      // Store original medicines state for rollback if needed
+      const originalMedicines = [...todayMedicines];
+      
+      // Update local state optimistically
       if (completed) {
         setTodayMedicines(prev => prev.filter(med => med._id !== medicineId));
+        
+        // Update progress optimistically
+        const newCompleted = progress.completed + 1;
+        setProgress(prev => ({
+          ...prev,
+          completed: newCompleted,
+          progress: prev.total > 0 ? (newCompleted / prev.total) * 100 : 0
+        }));
       }
 
-      // Calculate progress optimistically
-      const updatedMedicines = todayMedicines.filter(med => med._id !== medicineId);
-      const total = todayMedicines.length;
-      const updatedCompleted = total - updatedMedicines.length;
-      
-      setProgress(prev => ({
-        ...prev,
-        completed: updatedCompleted,
-        progress: total > 0 ? (updatedCompleted / total) * 100 : 0
-      }));
-
       // Send the update to the server
-      await axios.post(
+      const response = await axios.post(
         `${SERVER_URL}/api/user/medicines/${medicineId}/status`,
         { completed },
-        { headers: { Authorization: `Bearer ${token}` }}
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 15000 // 15-second timeout
+        }
       );
-
-      // Refresh data after updating to ensure consistency
-      fetchData();
+      
+      console.log('Medicine status updated successfully:', response.data);
+      
+      // Refresh data after a short delay
+      setTimeout(() => {
+        fetchData();
+      }, 1000);
+      
     } catch (error) {
       console.error('Error updating medicine status:', error);
-      // Rollback changes if the server request failed
+      
+      // Show detailed error information in console for debugging
+      if (error.response) {
+        console.error('Server response error:', error.response.status, error.response.data);
+      } else if (error.request) {
+        console.error('No response received:', error.request);
+      } else {
+        console.error('Request setup error:', error.message);
+      }
+      
+      // Refresh data to ensure UI consistency regardless of error
       fetchData();
-      Alert.alert('Error', 'Failed to update medicine status. Please try again.');
+      
+      // Show user-friendly error message
+      Alert.alert(
+        'Update Failed', 
+        'Could not update medication status. Please check your connection and try again.'
+      );
     }
   };
 
