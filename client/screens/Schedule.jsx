@@ -28,23 +28,22 @@ const Schedule = () => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [dayMedicines, setDayMedicines] = useState([]);
 
-  // Initialize data on component mount
+  // Initialize data on component mount - now starting from today
   useEffect(() => {
     const today = new Date();
     
-    // Set the start of the week (Sunday)
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay());
+    // Start from today instead of the beginning of the week
+    const startDate = today;
     
     // Format dates for API
-    const formattedStart = formatDateForAPI(weekStart);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const formattedEnd = formatDateForAPI(weekEnd);
+    const formattedStart = formatDateForAPI(startDate);
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6); // 7 days from today
+    const formattedEnd = formatDateForAPI(endDate);
     
     setStartDate(formattedStart);
     setEndDate(formattedEnd);
-    setCurrentWeekStart(weekStart);
+    setCurrentWeekStart(startDate);
     
     // Set selected day to today
     const formattedToday = formatDateForAPI(today);
@@ -93,12 +92,20 @@ const Schedule = () => {
         { headers: { Authorization: `Bearer ${token}` }}
       );
       
-      setSchedule(response.data.schedule);
+      // Filter out onboarding medicines (those with IDs starting with 'onboarding-med-')
+      const filteredSchedule = {};
+      Object.keys(response.data.schedule).forEach(date => {
+        filteredSchedule[date] = response.data.schedule[date].filter(
+          med => !med.id.startsWith('onboarding')
+        );
+      });
+      
+      setSchedule(filteredSchedule);
       setLoading(false);
       
       // Update the selected day's medicines
-      if (selectedDay && response.data.schedule[selectedDay]) {
-        setDayMedicines(response.data.schedule[selectedDay]);
+      if (selectedDay && filteredSchedule[selectedDay]) {
+        setDayMedicines(filteredSchedule[selectedDay]);
       } else {
         setDayMedicines([]);
       }
@@ -143,21 +150,26 @@ const Schedule = () => {
     fetchSchedule(newStartFormatted, newEndFormatted);
   };
 
-  // Return to current week
-  const goToCurrentWeek = () => {
+  // Return to today
+  const goToToday = () => {
     const today = new Date();
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay());
-    setCurrentWeekStart(weekStart);
     
-    const formattedStart = formatDateForAPI(weekStart);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const formattedEnd = formatDateForAPI(weekEnd);
+    // Start from today
+    const startDate = today;
+    
+    // Format dates for API
+    const formattedStart = formatDateForAPI(startDate);
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6); // 7 days from today
+    const formattedEnd = formatDateForAPI(endDate);
     
     setStartDate(formattedStart);
     setEndDate(formattedEnd);
-    setSelectedDay(formatDateForAPI(today));
+    setCurrentWeekStart(startDate);
+    
+    // Set selected day to today
+    const formattedToday = formatDateForAPI(today);
+    setSelectedDay(formattedToday);
     
     fetchSchedule(formattedStart, formattedEnd);
   };
@@ -207,25 +219,6 @@ const Schedule = () => {
     return `${formattedHour}:${minutes} ${ampm}`;
   };
 
-  // Update medicine status (taken or not taken)
-  const updateMedicineStatus = async (medicineId, completed) => {
-    try {
-      const token = await AsyncStorage.getItem('accessToken');
-      
-      await axios.post(
-        `${SERVER_URL}/api/user/medicines/${medicineId}/status`,
-        { completed },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-
-      // Re-fetch schedule to update the UI
-      fetchSchedule(startDate, endDate);
-    } catch (error) {
-      console.error('Error updating medicine status:', error);
-      Alert.alert('Error', 'Failed to update medicine status');
-    }
-  };
-
   // Navigate to add medication screen
   const goToAddMedicine = () => {
     navigation.navigate('AddMedicine');
@@ -240,7 +233,7 @@ const Schedule = () => {
     return (
       <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FF7F50" />
-        <Text style={styles.loadingText}>Loading your schedule...</Text>
+        <Text style={styles.loadingText}>Loading your calendar...</Text>
       </SafeAreaView>
     );
   }
@@ -252,7 +245,7 @@ const Schedule = () => {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Medicine Schedule</Text>
+        <Text style={styles.headerTitle}>Medicine Calendar</Text>
         <TouchableOpacity onPress={goToAddMedicine} style={styles.addButton}>
           <Ionicons name="add" size={24} color="#fff" />
         </TouchableOpacity>
@@ -264,7 +257,7 @@ const Schedule = () => {
           <Ionicons name="chevron-back" size={24} color="#666" />
         </TouchableOpacity>
         
-        <TouchableOpacity onPress={goToCurrentWeek} style={styles.todayButton}>
+        <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
           <Text style={styles.todayText}>Today</Text>
         </TouchableOpacity>
         
@@ -340,7 +333,7 @@ const Schedule = () => {
         </Text>
       </View>
       
-      {/* Medicines List */}
+      {/* Medicines List - Now just shows status instead of actions */}
       <FlatList
         data={dayMedicines}
         keyExtractor={(item) => item.id.toString()}
@@ -351,27 +344,39 @@ const Schedule = () => {
             <Text style={styles.emptyText}>No medications scheduled for this day</Text>
           </View>
         )}
-        renderItem={({ item }) => (
-          <View style={styles.medicineCard}>
-            <View style={styles.medicineDetails}>
-              <Text style={styles.medicineName}>{item.name}</Text>
-              <Text style={styles.medicineDosage}>{item.dosage}</Text>
-              <Text style={styles.medicineTime}>{formatTime(item.time)}</Text>
-            </View>
-            <View style={styles.medicineActions}>
-              <TouchableOpacity
-                style={[
-                  styles.statusButton,
-                  item.completed ? styles.completedButton : styles.pendingButton
-                ]}
-                onPress={() => updateMedicineStatus(item.id, !item.completed)}
-              >
+        renderItem={({ item }) => {
+          // Check if selected day is today
+          const isToday = selectedDay === formatDateForAPI(new Date());
+          
+          return (
+            <View style={[
+              styles.medicineCard, 
+              item.completed && styles.completedMedicineCard
+            ]}>
+              <View style={styles.medicineDetails}>
+                <Text style={styles.medicineName}>{item.name}</Text>
+                <Text style={styles.medicineDosage}>{item.dosage}</Text>
+                <Text style={styles.medicineTime}>{formatTime(item.time)}</Text>
+                
+                {/* Status Display - Show status instead of actions */}
                 {item.completed ? (
-                  <FontAwesome name="check" size={16} color="#fff" />
+                  <View style={styles.statusContainer}>
+                    <FontAwesome name="check-circle" size={16} color="#4CAF50" />
+                    <Text style={styles.statusText}>Taken</Text>
+                  </View>
+                ) : isToday ? (
+                  <View style={styles.statusContainer}>
+                    <MaterialIcons name="pending" size={16} color="#FF7F50" />
+                    <Text style={styles.pendingText}>Scheduled</Text>
+                  </View>
                 ) : (
-                  <MaterialIcons name="close" size={16} color="#fff" />
+                  <View style={styles.statusContainer}>
+                    <MaterialIcons name="cancel" size={16} color="#F44336" />
+                    <Text style={styles.missedText}>Not Taken</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
+              </View>
+              
               <TouchableOpacity
                 style={styles.editButton}
                 onPress={() => editMedicine(item.id)}
@@ -379,8 +384,8 @@ const Schedule = () => {
                 <MaterialIcons name="edit" size={16} color="#666" />
               </TouchableOpacity>
             </View>
-          </View>
-        )}
+          );
+        }}
       />
     </SafeAreaView>
   );
@@ -547,6 +552,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF7F50',
+  },
+  completedMedicineCard: {
+    borderLeftColor: '#4CAF50',
+    backgroundColor: '#F1F8E9',
   },
   medicineDetails: {
     flex: 1,
@@ -567,23 +578,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
-  medicineActions: {
+  statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 8,
   },
-  statusButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
+  statusText: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: 'bold',
   },
-  completedButton: {
-    backgroundColor: '#4CAF50',
+  pendingText: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#FF7F50',
+    fontWeight: 'bold',
   },
-  pendingButton: {
-    backgroundColor: '#FF5252',
+  missedText: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#F44336',
+    fontWeight: 'bold',
   },
   editButton: {
     width: 34,

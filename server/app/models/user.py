@@ -150,13 +150,37 @@ class User:
         """
         db = get_db()
         
+        # First check if the medicine already has a history entry for today
+        today = datetime.utcnow().strftime('%Y-%m-%d')
+        
+        user = db.users.find_one(
+            {
+                '_id': ObjectId(user_id),
+                'medicines._id': ObjectId(medicine_id),
+            },
+            {'medicines.$': 1}
+        )
+        
+        if not user or 'medicines' not in user or len(user['medicines']) == 0:
+            return False
+        
+        medicine = user['medicines'][0]
+        
+        # Check if this medicine was already marked as taken today
+        # If so, we don't allow changing its status again
+        for entry in medicine.get('history', []):
+            if entry.get('date') == today and entry.get('completed', False):
+                # If already marked as taken, don't allow changes
+                return False
+        
         # Create history entry
         history_entry = {
-            'date': datetime.utcnow().strftime('%Y-%m-%d'),
+            'date': today,
             'timestamp': datetime.utcnow(),
             'completed': completed
         }
         
+        # Add entry to history and update last_status
         result = db.users.update_one(
             {
                 '_id': ObjectId(user_id),

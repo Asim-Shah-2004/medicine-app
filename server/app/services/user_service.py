@@ -2,6 +2,7 @@ from app.database import get_db
 from bson.objectid import ObjectId
 from datetime import datetime, timedelta
 import pytz
+from app.models.user import User  # Add missing User model import
 
 class UserService:
     """
@@ -245,33 +246,32 @@ class UserService:
         """
         db = get_db()
         
-        # Get current date and time
-        now = datetime.now()
-        today = now.strftime('%Y-%m-%d')
+        # First check if the medicine is for today
+        today = datetime.now().strftime('%Y-%m-%d')
         
-        # Create history entry
-        history_entry = {
-            'date': today,
-            'timestamp': now,
-            'completed': completed
-        }
-        
-        # Update medicine status and add to history
-        result = db.users.update_one(
+        # Check if the medicine was already taken today
+        user = db.users.find_one(
             {
                 '_id': ObjectId(user_id),
                 'medicines._id': ObjectId(medicine_id)
             },
-            {
-                '$push': {'medicines.$.history': history_entry},
-                '$set': {'medicines.$.last_status': completed}
-            }
+            {'medicines.$': 1}
         )
         
-        if result.matched_count == 0:
+        if not user or 'medicines' not in user or len(user['medicines']) == 0:
             return False, "Medicine not found", 404
         
-        if result.modified_count == 0:
+        medicine = user['medicines'][0]
+        
+        # Check if medicine is already marked as taken today
+        for entry in medicine.get('history', []):
+            if entry.get('date') == today and entry.get('completed', False):
+                return False, "Medicine already taken today and cannot be modified", 400
+        
+        # Call the model to update the status
+        success = User.update_medicine_status(user_id, medicine_id, completed)
+        
+        if not success:
             return False, "Failed to update medicine status", 500
         
         return True, {"message": "Medicine status updated successfully"}, 200
@@ -291,13 +291,13 @@ class UserService:
         
         medicines = user.get('medicines', [])
         
-        # If no date range provided, default to current week
+        # Always start from today if no start date provided
+        today = datetime.now()
         if not start_date:
-            today = datetime.now()
-            start_of_week = today - timedelta(days=today.weekday())
-            start_date = start_of_week.strftime('%Y-%m-%d')
+            start_date = today.strftime('%Y-%m-%d')
         
         if not end_date:
+            # Default to 7 days from start date
             start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
             end_datetime = start_datetime + timedelta(days=6)  # 7-day view
             end_date = end_datetime.strftime('%Y-%m-%d')
