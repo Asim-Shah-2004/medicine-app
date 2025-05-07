@@ -3,13 +3,18 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 from app.database import init_db, get_db
+from app.utils.json_utils import MongoJSONProvider
 
 load_dotenv()
 
-def create_app():
+def create_app(config_name='development'):
     app = Flask(__name__)
     
     app.config.from_object('app.config.Config')
+    
+    # Set the custom JSON provider (Flask 3.1.0+ approach)
+    app.json_provider_class = MongoJSONProvider
+    app.json = MongoJSONProvider(app)
     
     CORS(app)
     
