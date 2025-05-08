@@ -12,11 +12,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
-  Animated
+  Animated,
+  ScrollView
 } from 'react-native';
 import {SERVER_URL} from "@env"
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+// Import markdown parser
+import Markdown from 'react-native-markdown-display';
 
 // API Configuration
 const API_URL = `${SERVER_URL}/api`;
@@ -203,7 +206,79 @@ const MediChat = () => {
     }
   };
 
-  // Display raw message text without parsing
+  // Custom markdown styling
+  const markdownStyles = {
+    body: {
+      color: '#333',
+    },
+    heading1: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      marginTop: 10,
+      marginBottom: 5,
+      color: '#333',
+    },
+    heading2: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginTop: 8,
+      marginBottom: 4,
+      color: '#333',
+    },
+    heading3: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      marginTop: 6,
+      marginBottom: 3,
+      color: '#333',
+    },
+    link: {
+      color: '#FF7F50',
+      textDecorationLine: 'underline',
+    },
+    blockquote: {
+      borderLeftWidth: 3,
+      borderLeftColor: '#FF7F50',
+      paddingLeft: 10,
+      marginLeft: 10,
+      fontStyle: 'italic',
+      color: '#555',
+    },
+    list_item: {
+      marginBottom: 5,
+    },
+    bullet_list: {
+      marginVertical: 5,
+    },
+    ordered_list: {
+      marginVertical: 5,
+    },
+    strong: {
+      fontWeight: 'bold',
+    },
+    em: {
+      fontStyle: 'italic',
+    },
+    code_inline: {
+      backgroundColor: '#f5f5f5',
+      padding: 2,
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    },
+    code_block: {
+      backgroundColor: '#f5f5f5',
+      padding: 8,
+      borderRadius: 4,
+      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      marginVertical: 10,
+    },
+    hr: {
+      backgroundColor: '#ddd',
+      height: 1,
+      marginVertical: 10,
+    },
+  };
+
+  // Render message with markdown for bot responses
   const renderMessage = ({ item }) => (
     <View 
       style={[
@@ -212,12 +287,15 @@ const MediChat = () => {
         item.error && styles.errorBubble
       ]}
     >
-      <Text style={[
-        styles.messageText, 
-        item.sender === 'user' && styles.userMessageText
-      ]}>
-        {item.text}
-      </Text>
+      {item.sender === 'user' ? (
+        <Text style={styles.userMessageText}>
+          {item.text}
+        </Text>
+      ) : (
+        <Markdown style={markdownStyles}>
+          {item.text}
+        </Markdown>
+      )}
     </View>
   );
 
@@ -251,6 +329,15 @@ const MediChat = () => {
               Ask me any medical questions you have, and I'll provide helpful information
               with citations to reliable sources.
             </Text>
+            <Text style={styles.welcomeSubText}>
+              Responses support markdown formatting including:
+            </Text>
+            <View style={styles.markdownExampleContainer}>
+              <Text style={styles.markdownExample}>• Headings: # Heading</Text>
+              <Text style={styles.markdownExample}>• Bold: **text**</Text>
+              <Text style={styles.markdownExample}>• Lists: - item or 1. item</Text>
+              <Text style={styles.markdownExample}>• Links: [text](url)</Text>
+            </View>
             <Text style={styles.disclaimerText}>
               Note: This is for informational purposes only and not a substitute for 
               professional medical advice.
@@ -341,6 +428,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: '#333',
   },
+  welcomeSubText: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#555',
+  },
+  markdownExampleContainer: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    alignSelf: 'stretch',
+  },
+  markdownExample: {
+    fontSize: 13,
+    color: '#555',
+    marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
   disclaimerText: {
     fontSize: 12,
     textAlign: 'center',
@@ -368,11 +474,8 @@ const styles = StyleSheet.create({
   errorBubble: {
     backgroundColor: '#ffeded',
   },
-  messageText: {
-    fontSize: 15,
-    color: '#333',
-  },
   userMessageText: {
+    fontSize: 15,
     color: '#fff',
   },
   botTypingContainer: {
