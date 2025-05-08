@@ -454,9 +454,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   todayText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
+    color: '#FF7F50',
   },
   calendarContainer: {
     backgroundColor: '#fff',
@@ -511,9 +509,6 @@ const styles = StyleSheet.create({
   },
   selectedDayText: {
     color: '#fff',
-  },
-  todayText: {
-    color: '#FF7F50',
   },
   superscriptCount: {
     fontSize: 10,

@@ -303,11 +303,15 @@ const Home = () => {
 
   // Format time to AM/PM format
   const formatTime = (timeString) => {
-    const [hours, minutes] = timeString.split(':');
-    const hour = parseInt(hours, 10);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const formattedHour = hour % 12 || 12;
-    return `${formattedHour}:${minutes} ${ampm}`;
+    try {
+      const [hours, minutes] = timeString.split(':').map(Number);
+      const hour = hours % 12 || 12; // Convert 0 to 12
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      return `${hour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return timeString; // Return original string if parsing fails
+    }
   };
 
   // Sound related functions
@@ -547,62 +551,47 @@ const Home = () => {
   // Handle medicine reminder response
   const handleReminderResponse = async (taken) => {
     if (currentReminder) {
-      // Add to dismissed reminders list with type to prevent it from showing again
-      setDismissedReminders(prev => [...prev, `${currentReminder._id}_due`]);
-      
-      // First stop vibration immediately - do this before any async operations
-      Vibration.cancel();
-      
-      // Store reminder info for later use
-      const reminderToUpdate = {...currentReminder};
-      
-      // Hide modal and stop sounds immediately to improve responsiveness
+      // Immediately clear all states that might trigger checks
+      setCurrentReminder(null);
       setReminderVisible(false);
+      setActiveReminders([]);
       
-      // Use haptic feedback as confirmation
-      try {
-        if (taken) {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } else {
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Force stop all sounds and vibrations
+      Vibration.cancel();
+      if (sound.current) {
+        try {
+          await sound.current.stopAsync();
+          await sound.current.unloadAsync();
+        } catch (error) {
+          console.log('Error stopping sound:', error);
         }
-      } catch (error) {
-        console.error('Error with haptic feedback:', error);
+        sound.current = null;
       }
+
+      // Store the medicine info before clearing states
+      const medicineId = currentReminder._id;
       
-      // Stop sound
-      await stopAlertSound();
-      
-      // Animate out
-      Animated.timing(reminderOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(async () => {
-        // Update medicine status if taken
-        if (taken) {
-          await updateMedicineStatus(reminderToUpdate._id, true);
-        }
-        
-        // Remove from active reminders
-        setActiveReminders(prev => prev.filter(id => id !== reminderToUpdate._id));
-        
-        // Clear current reminder
-        setCurrentReminder(null);
-      });
+      // Add to dismissed reminders to prevent future checks
+      setDismissedReminders(prev => [...prev, `${medicineId}_due`]);
+
+      // Update medicine status if taken
+      if (taken) {
+        await updateMedicineStatus(medicineId, true);
+      }
     }
   };
 
   // Check medicines and show reminders
   const checkMedicines = useCallback(() => {
-    if (reminderVisible || upcomingReminderVisible) {
-      console.log('Reminder already visible, skipping check');
+    // Don't check if there's an active reminder or if sound is playing
+    if (reminderVisible || upcomingReminderVisible || sound.current) {
+      console.log('Reminder active or sound playing, skipping check');
       return;
     }
 
     const now = new Date();
     console.log('Checking medicines...');
-    console.log('Current time:', now.toLocaleTimeString());
+    console.log('Current time:', now.toLocaleTimeString('en-US'));
 
     // Get today's date in YYYY-MM-DD format
     const today = now.toISOString().split('T')[0];
@@ -615,18 +604,19 @@ const Home = () => {
 
       if (takenToday || 
           medicine.last_status || 
-          dismissedReminders.includes(medicine._id)) {
+          dismissedReminders.includes(medicine._id) ||
+          dismissedReminders.includes(`${medicine._id}_due`)) {
         return;
       }
 
-      console.log(`Checking medicine: ${medicine.name} scheduled for: ${medicine.time}`);
+      console.log(`Checking medicine: ${medicine.name} scheduled for: ${formatTime(medicine.time)}`);
 
       // Check if it's time to show a reminder
       if (isDueNow(medicine.time) && !dismissedReminders.includes(`${medicine._id}_due`)) {
-        console.log(`Medicine is due now: ${medicine.name}`);
+        console.log(`Medicine is due now: ${medicine.name} at ${formatTime(medicine.time)}`);
         showReminderForMedicine(medicine);
       } else if (isUpcoming(medicine.time) && !dismissedReminders.includes(`${medicine._id}_upcoming`)) {
-        console.log(`Medicine is upcoming: ${medicine.name}`);
+        console.log(`Medicine is upcoming: ${medicine.name} at ${formatTime(medicine.time)}`);
         showUpcomingReminderForMedicine(medicine);
       }
     });
