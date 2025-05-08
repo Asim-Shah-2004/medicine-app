@@ -613,7 +613,8 @@ const Home = () => {
               <View key={medicine._id} style={[
                 styles.medicineCard,
                 isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
-                isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard
+                isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard,
+                medicine.last_status && styles.takenMedicineCard,
               ]}>
                 <View style={styles.medicineInfo}>
                   <Text style={styles.medicineName}>{medicine.name}</Text>
@@ -622,14 +623,23 @@ const Home = () => {
                   {isUpcoming(medicine.time) && !medicine.last_status && (
                     <Text style={styles.upcomingText}>Coming up soon</Text>
                   )}
+                  {medicine.last_status && (
+                    <Text style={styles.takenText}>Already taken</Text>
+                  )}
                 </View>
                 <View style={styles.actionButtons}>
-                  <TouchableOpacity 
-                    style={styles.takeButton}
-                    onPress={() => updateMedicineStatus(medicine._id, true)}
-                  >
-                    <Text style={styles.takeButtonText}>Take</Text>
-                  </TouchableOpacity>
+                  {!medicine.last_status ? (
+                    <TouchableOpacity 
+                      style={styles.takeButton}
+                      onPress={() => updateMedicineStatus(medicine._id, true)}
+                    >
+                      <Text style={styles.takeButtonText}>Take</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.takenIndicator}>
+                      <FontAwesome name="check" size={16} color="#fff" />
+                    </View>
+                  )}
                 </View>
               </View>
             ))
@@ -844,6 +854,10 @@ const styles = StyleSheet.create({
     borderLeftColor: '#4682B4',
     backgroundColor: '#F0F8FF',
   },
+  takenMedicineCard: {
+    borderLeftColor: '#4CD964',
+    backgroundColor: '#F0FFF0',
+  },
   medicineInfo: {
     flex: 1,
   },
@@ -868,6 +882,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontWeight: '500',
   },
+  takenText: {
+    color: '#4CD964',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
   actionButtons: {
     flexDirection: 'row',
   },
@@ -883,6 +903,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  takenIndicator: {
+    backgroundColor: '#4CD964',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   noMedicineText: {
     textAlign: 'center',
