@@ -108,7 +108,7 @@ const EmergencyScreen = ({ navigation }) => {
     }
   };
 
-  // Find real nearby hospitals using OpenStreetMap API
+  // Find real nearest hospital using OpenStreetMap API
   const findRealNearbyHospitals = async (coords) => {
     try {
       setLoading(true);
@@ -161,10 +161,18 @@ const EmergencyScreen = ({ navigation }) => {
       hospitals.sort((a, b) => a.distanceValue - b.distanceValue);
       
       setNearbyHospitals(hospitals);
+      
+      // Automatically select the nearest hospital
+      if (hospitals.length > 0) {
+        const nearestHospital = hospitals[0];
+        setSelectedHospital(nearestHospital);
+        getRouteToHospital(nearestHospital);
+      }
+      
       setLoading(false);
     } catch (error) {
-      console.error('Error finding hospitals:', error);
-      Alert.alert('Error', 'Failed to find nearby hospitals. Using simulated data instead.');
+      console.error('Error finding nearest hospital:', error);
+      Alert.alert('Error', 'Failed to find nearest hospital. Using simulated data instead.');
       
       // Fallback to simulated data if API fails
       const simulatedHospitals = [
@@ -201,6 +209,12 @@ const EmergencyScreen = ({ navigation }) => {
       ];
       
       setNearbyHospitals(simulatedHospitals);
+      
+      // Select the nearest hospital from simulated data
+      const nearestHospital = simulatedHospitals[0];
+      setSelectedHospital(nearestHospital);
+      getRouteToHospital(nearestHospital);
+      
       setLoading(false);
     }
   };
@@ -527,7 +541,7 @@ const EmergencyScreen = ({ navigation }) => {
       <View style={styles.content}>
         {showMap ? (
           <View style={styles.mapContainer}>
-            <Text style={styles.mapTitle}>Nearby Medical Facilities</Text>
+            <Text style={styles.mapTitle}>Nearest Medical Facility</Text>
             
             <MapView
               ref={mapRef}
@@ -636,15 +650,15 @@ const EmergencyScreen = ({ navigation }) => {
             )}
             
             <View style={styles.hospitalsList}>
-              <Text style={styles.hospitalsListTitle}>Nearby Medical Facilities:</Text>
+              <Text style={styles.hospitalsListTitle}>Nearest Medical Facility:</Text>
               
               {loading ? (
                 <View style={styles.loadingHospitals}>
                   <ActivityIndicator size="small" color="#ff5e62" />
-                  <Text style={styles.loadingHospitalsText}>Finding nearby hospitals...</Text>
+                  <Text style={styles.loadingHospitalsText}>Finding nearest hospital...</Text>
                 </View>
               ) : nearbyHospitals.length === 0 ? (
-                <Text style={styles.noHospitalsText}>No nearby hospitals found</Text>
+                <Text style={styles.noHospitalsText}>No nearby hospital found</Text>
               ) : (
                 nearbyHospitals.map(hospital => (
                   <TouchableOpacity
