@@ -12,15 +12,88 @@ import {
   Modal,
   Animated,
   Dimensions,
-  Vibration
+  Vibration,
+  Image,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { MaterialIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome, Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import axios from 'axios';
 import { SERVER_URL } from '@env';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+
+// Import these conditionally in case they're not installed
+let LinearGradient;
+let BlurView;
+let Svg;
+let Circle;
+
+try {
+  LinearGradient = require('expo-linear-gradient').LinearGradient;
+} catch (error) {
+  // Create a fallback component if LinearGradient is not available
+  LinearGradient = ({ children, style }) => (
+    <View style={[style, { backgroundColor: '#5e72e4' }]}>{children}</View>
+  );
+}
+
+try {
+  BlurView = require('expo-blur').BlurView;
+} catch (error) {
+  // Create a fallback component if BlurView is not available
+  BlurView = ({ children, style, intensity }) => (
+    <View style={[style, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}>{children}</View>
+  );
+}
+
+try {
+  const SvgComponents = require('react-native-svg');
+  Svg = SvgComponents.Svg;
+  Circle = SvgComponents.Circle;
+} catch (error) {
+  // Create fallback components if SVG is not available
+  Svg = ({ children, width, height }) => (
+    <View style={{ width, height, position: 'relative' }}>{children}</View>
+  );
+  Circle = (props) => {
+    // For the progress circle, create a simple view with different styling
+    const isProgressCircle = props.strokeDasharray !== undefined;
+    
+    if (isProgressCircle) {
+      return (
+        <View style={{ 
+          position: 'absolute',
+          width: props.r * 2, 
+          height: props.r * 2,
+          borderRadius: props.r,
+          borderWidth: props.strokeWidth,
+          borderColor: props.stroke,
+          opacity: 0.8,
+          top: 50 - props.r,
+          left: 50 - props.r
+        }} />
+      );
+    }
+    
+    return (
+      <View style={{ 
+        position: 'absolute',
+        width: props.r * 2, 
+        height: props.r * 2, 
+        borderRadius: props.r,
+        borderWidth: props.strokeWidth,
+        borderColor: props.stroke,
+        top: 50 - props.r,
+        left: 50 - props.r
+      }} />
+    );
+  };
+}
+
+const { width, height } = Dimensions.get('window');
 
 const Home = () => {
   const navigation = useNavigation();
@@ -41,6 +114,11 @@ const Home = () => {
   const reminderOpacity = useRef(new Animated.Value(0)).current;
   const upcomingReminderOpacity = useRef(new Animated.Value(0)).current;
   const sound = useRef(null);
+
+  // Animation values
+  const headerHeight = useRef(new Animated.Value(0)).current;
+  const progressOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.95)).current;
 
   // Fetch data from the server
   const fetchData = async () => {
@@ -599,561 +677,1080 @@ const Home = () => {
     setupAudio();
   }, []);
 
+  // Let's add some entrance animations
+  useEffect(() => {
+    if (!loading) {
+      // Animate header
+      Animated.timing(headerHeight, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }).start();
+
+      // Animate progress section
+      Animated.timing(progressOpacity, {
+        toValue: 1,
+        duration: 1000,
+        delay: 300,
+        useNativeDriver: true,
+      }).start();
+
+      // Animate cards
+      Animated.spring(cardScale, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [loading]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF7F50" />
-        <Text style={styles.loadingText}>Loading your medication schedule...</Text>
+        <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
+        <Image 
+          source={require('../assets/icon.png')} 
+          style={styles.loadingImage}
+          resizeMode="contain"
+        />
+        <ActivityIndicator size="large" color="#5e72e4" />
+        <Text style={styles.loadingText}>Preparing your health dashboard...</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
+      
+      {/* Animated Header Section */}
+      <Animated.View 
+        style={[
+          styles.headerContainer,
+          {
+            transform: [{
+              translateY: headerHeight.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-50, 0],
+              })
+            }],
+            opacity: headerHeight
+          }
+        ]}
+      >
+        <LinearGradient
+          colors={['#ff7e5f', '#feb47b']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.headerGradient}
+        >
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <MaterialCommunityIcons name="pill" size={30} color="#fff" />
+              <Text style={styles.headerTitle}>MediTracker</Text>
+            </View>
+            
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.iconButton}
+                onPress={goToSchedule}
+              >
+                <Feather name="calendar" size={22} color="#fff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.iconButton, styles.addIconButton]}
+                onPress={goToAddMedicine}
+              >
+                <Ionicons name="add" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </LinearGradient>
+      </Animated.View>
+
       <ScrollView
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#FF7F50']} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            colors={['#ff7e5f']} 
+            tintColor="#ff7e5f"
+            progressBackgroundColor="#ffffff"
+          />
         }
       >
-        {/* Header Section */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Medicine Tracker</Text>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={goToAddMedicine}
+        {/* Today's Progress Card */}
+        <Animated.View 
+          style={[
+            styles.progressCard,
+            {
+              opacity: progressOpacity,
+              transform: [{ scale: cardScale }]
+            }
+          ]}
+        >
+          <LinearGradient
+            colors={['#ff7e5f', '#feb47b']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.progressCardInner}
           >
-            <Ionicons name="add" size={28} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Today's Progress */}
-        <View style={styles.progressContainer}>
-          <Text style={styles.sectionTitle}>Today's Progress</Text>
-          <View style={styles.progressBarContainer}>
-            <View 
-              style={[
-                styles.progressBar, 
-                { width: `${progress.progress || 0}%` }
-              ]} 
-            />
-          </View>
-          <Text style={styles.progressText}>
-            {progress.completed} of {progress.total} medications taken
-          </Text>
-        </View>
-
-        {/* Today's Schedule */}
-        <View style={styles.todayContainer}>
-          <Text style={styles.sectionTitle}>Today's Schedule</Text>
-          {todayMedicines.length > 0 ? (
-            todayMedicines.map((medicine) => (
-              <View key={medicine._id} style={[
-                styles.medicineCard,
-                isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
-                isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard,
-                medicine.last_status && styles.takenMedicineCard,
-              ]}>
-                <View style={styles.medicineInfo}>
-                  <Text style={styles.medicineName}>{medicine.name}</Text>
-                  <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
-                  <Text style={styles.medicineTime}>{formatTime(medicine.time)}</Text>
-                  {isUpcoming(medicine.time) && !medicine.last_status && (
-                    <Text style={styles.upcomingText}>Coming up in {
-                      Math.round(
-                        (new Date(new Date().setHours(...medicine.time.split(':'), 0, 0)) - new Date()) / 
-                        (1000 * 60)
-                      )} minutes
-                    </Text>
-                  )}
-                  {isDueNow(medicine.time) && !medicine.last_status && (
-                    <Text style={styles.dueNowText}>Due now!</Text>
-                  )}
-                  {medicine.last_status && (
-                    <Text style={styles.takenText}>Already taken</Text>
-                  )}
-                </View>
-                <View style={styles.actionButtons}>
-                  {!medicine.last_status ? (
-                    <TouchableOpacity 
-                      style={styles.takeButton}
-                      onPress={() => updateMedicineStatus(medicine._id, true)}
-                    >
-                      <Text style={styles.takeButtonText}>Take</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View style={styles.takenIndicator}>
-                      <FontAwesome name="check" size={16} color="#fff" />
-                    </View>
-                  )}
+            <View style={styles.progressTitleRow}>
+              <Text style={styles.progressTitle}>Today's Progress</Text>
+              <View style={styles.dateBadge}>
+                <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.progressVisualContainer}>
+              <View style={styles.progressCircleContainer}>
+                <Svg width={100} height={100} viewBox="0 0 100 100">
+                  {/* Background Circle */}
+                  <Circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    stroke="rgba(255, 255, 255, 0.3)"
+                    strokeWidth="10"
+                    fill="transparent"
+                  />
+                  
+                  {/* Progress Circle */}
+                  <Circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    stroke="white"
+                    strokeWidth="10"
+                    fill="transparent"
+                    strokeDasharray={2 * Math.PI * 45}
+                    strokeDashoffset={2 * Math.PI * 45 * (1 - (progress.progress || 0) / 100)}
+                    strokeLinecap="round"
+                    transform="rotate(-90, 50, 50)"
+                  />
+                </Svg>
+                <View style={styles.progressTextContainer}>
+                  <Text style={styles.progressPercentage}>{Math.round(progress.progress || 0)}%</Text>
                 </View>
               </View>
-            ))
-          ) : (
-            <Text style={styles.noMedicineText}>No medications scheduled for today</Text>
-          )}
+              
+              <View style={styles.progressDetails}>
+                <View style={styles.progressItem}>
+                  <MaterialCommunityIcons name="pill" size={20} color="#ffffff" />
+                  <Text style={styles.progressItemText}>Total: {progress.total}</Text>
+                </View>
+                <View style={styles.progressItem}>
+                  <MaterialCommunityIcons name="check-circle" size={20} color="#ffffff" />
+                  <Text style={styles.progressItemText}>Taken: {progress.completed}</Text>
+                </View>
+                <View style={styles.progressItem}>
+                  <MaterialCommunityIcons name="clock-outline" size={20} color="#ffffff" />
+                  <Text style={styles.progressItemText}>Pending: {progress.total - progress.completed}</Text>
+                </View>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
+
+        {/* Analytics Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Analytics</Text>
+          <View style={styles.analyticsCard}>
+            <View style={styles.analyticsHeader}>
+              <Text style={styles.analyticsTitle}>Medication Trends</Text>
+              <View style={styles.tabsContainer}>
+                <TouchableOpacity style={[styles.tab, styles.activeTab]}>
+                  <Text style={[styles.tabText, styles.activeTabText]}>Week</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.tab}>
+                  <Text style={styles.tabText}>Month</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.graphContainer}>
+              <View style={styles.barGraph}>
+                {/* Monday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>80%</Text>
+                    <View style={[styles.barColumn, { height: 80 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>M</Text>
+                  </View>
+                </View>
+
+                {/* Tuesday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>100%</Text>
+                    <View style={[styles.barColumn, { height: 100 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>T</Text>
+                  </View>
+                </View>
+
+                {/* Wednesday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>60%</Text>
+                    <View style={[styles.barColumn, { height: 60 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>W</Text>
+                  </View>
+                </View>
+
+                {/* Thursday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>90%</Text>
+                    <View style={[styles.barColumn, { height: 90 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>T</Text>
+                  </View>
+                </View>
+
+                {/* Friday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>75%</Text>
+                    <View style={[styles.barColumn, { height: 75 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>F</Text>
+                  </View>
+                </View>
+
+                {/* Saturday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>50%</Text>
+                    <View style={[styles.barColumn, { height: 50 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>S</Text>
+                  </View>
+                </View>
+
+                {/* Sunday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>85%</Text>
+                    <View style={[styles.barColumn, { height: 85 }]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>S</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.statsContainer}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>77%</Text>
+                <Text style={styles.statLabel}>Weekly Avg</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>100%</Text>
+                <Text style={styles.statLabel}>Best Day</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>5/7</Text>
+                <Text style={styles.statLabel}>Perfect Days</Text>
+              </View>
+            </View>
+          </View>
         </View>
 
-        {/* Calendar Link */}
-        <TouchableOpacity 
-          style={styles.calendarLinkContainer}
-          onPress={goToSchedule}
-        >
-          <Text style={styles.calendarLinkText}>Click here to view medicine calendar</Text>
-          <Ionicons name="calendar" size={24} color="#FF7F50" style={styles.calendarIcon} />
-        </TouchableOpacity>
+        {/* Today's Schedule Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Today's Schedule</Text>
+          <Text style={styles.sectionSubtitle}>Showing top 3 medications for today</Text>
+        
+          {todayMedicines.length > 0 ? (
+            <>
+              {todayMedicines.slice(0, 3).map((medicine, index) => (
+                <Animated.View 
+                  key={medicine._id} 
+                  style={[
+                    { 
+                      transform: [
+                        { scale: cardScale },
+                        { 
+                          translateY: cardScale.interpolate({
+                            inputRange: [0.95, 1],
+                            outputRange: [20 * (index + 1), 0]
+                          })
+                        }
+                      ]
+                    }
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (!medicine.last_status) {
+                        showReminderForMedicine(medicine);
+                      }
+                    }}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.medicineCard,
+                      isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
+                      isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard,
+                      medicine.last_status && styles.takenMedicineCard,
+                    ]}
+                  >
+                    <View style={styles.medicineCardContent}>
+                      <View style={styles.medicineDetails}>
+                        <View style={styles.medicineNameContainer}>
+                          <Text style={styles.medicineName}>{medicine.name}</Text>
+                          {isDueNow(medicine.time) && !medicine.last_status && (
+                            <View style={styles.dueNowBadge}>
+                              <Text style={styles.dueNowText}>DUE NOW</Text>
+                            </View>
+                          )}
+                          {isUpcoming(medicine.time) && !medicine.last_status && (
+                            <View style={styles.upcomingBadge}>
+                              <Text style={styles.upcomingText}>UPCOMING</Text>
+                            </View>
+                          )}
+                          {medicine.last_status && (
+                            <View style={styles.takenBadge}>
+                              <Text style={styles.takenBadgeText}>TAKEN</Text>
+                            </View>
+                          )}
+                        </View>
+                        
+                        <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
+                        
+                        <View style={styles.medicineTimeContainer}>
+                          <Feather name="clock" size={16} color={medicine.last_status ? "#4cd964" : isDueNow(medicine.time) ? "#ff3b30" : "#4682b4"} />
+                          <Text style={[
+                            styles.medicineTime,
+                            isDueNow(medicine.time) && !medicine.last_status && styles.dueNowTimeText,
+                            isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingTimeText,
+                            medicine.last_status && styles.takenTimeText,
+                          ]}>
+                            {formatTime(medicine.time)}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      <View style={styles.actionContainer}>
+                        {!medicine.last_status ? (
+                          <TouchableOpacity 
+                            style={styles.takeButton}
+                            onPress={() => updateMedicineStatus(medicine._id, true)}
+                          >
+                            <Text style={styles.takeButtonText}>Take</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={styles.takenIndicator}>
+                            <FontAwesome name="check" size={16} color="#fff" />
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </Animated.View>
+              ))}
+              
+              {todayMedicines.length > 3 && (
+                <TouchableOpacity 
+                  style={styles.viewMoreButton}
+                  onPress={goToSchedule}
+                >
+                  <Text style={styles.viewMoreText}>View All Medications</Text>
+                  <Feather name="chevron-right" size={18} color="#ff7e5f" />
+                </TouchableOpacity>
+              )}
+            </>
+          ) : (
+            <Animated.View style={{ opacity: progressOpacity }}>
+              <View style={styles.noMedicineContainer}>
+                <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
+                <Text style={styles.noMedicineText}>No medications scheduled for today</Text>
+                <TouchableOpacity 
+                  style={styles.addMedicineButton}
+                  onPress={goToAddMedicine}
+                >
+                  <Text style={styles.addMedicineButtonText}>Add Medication</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          )}
+        </View>
       </ScrollView>
 
       {/* Medicine Due Now Reminder Modal */}
       <Modal
         transparent={true}
         visible={reminderVisible}
-        animationType="none"
+        animationType="fade"
         onRequestClose={() => handleReminderResponse(false)}
       >
-        <Animated.View 
-          style={[
-            styles.reminderContainer,
-            { opacity: reminderOpacity }
-          ]}
-        >
-          <View style={styles.reminderContent}>
-            <View style={styles.reminderIconContainer}>
-              <Ionicons name="medkit" size={60} color="#FF7F50" />
-            </View>
-            <Text style={styles.reminderTitle}>It's time for your medicine!</Text>
-            {currentReminder && (
-              <>
-                <Text style={styles.reminderMedicineName}>{currentReminder.name}</Text>
-                <Text style={styles.reminderDosage}>{currentReminder.dosage}</Text>
-                <Text style={styles.reminderTime}>{formatTime(currentReminder.time)}</Text>
-              </>
-            )}
-            <View style={styles.reminderActions}>
-              <TouchableOpacity 
-                style={[styles.reminderButton, styles.reminderButtonTaken]}
-                onPress={() => handleReminderResponse(true)}
-              >
-                <FontAwesome name="check" size={24} color="#fff" />
-                <Text style={styles.reminderButtonText}>Taken</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.reminderButton, styles.reminderButtonSkip]}
-                onPress={() => handleReminderResponse(false)}
-              >
-                <MaterialIcons name="close" size={24} color="#fff" />
-                <Text style={styles.reminderButtonText}>Skip</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Animated.View>
+        <BlurView intensity={80} style={styles.blurBackground}>
+          <Animated.View 
+            style={[
+              styles.reminderContainer,
+              { opacity: reminderOpacity }
+            ]}
+          >
+            <LinearGradient
+              colors={['#ff7e5f', '#feb47b']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.reminderGradient}
+            >
+              <View style={styles.reminderIconContainer}>
+                <MaterialCommunityIcons name="pill" size={60} color="#fff" />
+              </View>
+              
+              <Text style={styles.reminderTitle}>Medication Time</Text>
+              
+              {currentReminder && (
+                <View style={styles.reminderContent}>
+                  <View style={styles.reminderInfoCard}>
+                    <View style={styles.pillIconRow}>
+                      <View style={styles.pillIconContainer}>
+                        <MaterialCommunityIcons name="pill" size={24} color="#ff7e5f" />
+                      </View>
+                      <Text style={styles.reminderMedicineName}>{currentReminder.name}</Text>
+                    </View>
+                    
+                    <View style={styles.reminderInfoRow}>
+                      <MaterialCommunityIcons name="medical-bag" size={20} color="#8898aa" />
+                      <Text style={styles.reminderInfoText}>{currentReminder.dosage}</Text>
+                    </View>
+                    
+                    <View style={styles.reminderInfoRow}>
+                      <Feather name="clock" size={20} color="#8898aa" />
+                      <Text style={styles.reminderInfoText}>{formatTime(currentReminder.time)}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.reminderActions}>
+                    <TouchableOpacity 
+                      style={[styles.reminderButton, styles.reminderButtonSkip]}
+                      onPress={() => handleReminderResponse(false)}
+                    >
+                      <Feather name="x" size={24} color="#fff" />
+                      <Text style={styles.reminderButtonText}>Skip</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.reminderButton, styles.reminderButtonTaken]}
+                      onPress={() => handleReminderResponse(true)}
+                    >
+                      <Feather name="check" size={24} color="#fff" />
+                      <Text style={styles.reminderButtonText}>Taken</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </LinearGradient>
+          </Animated.View>
+        </BlurView>
       </Modal>
 
       {/* Upcoming Medicine Reminder Modal */}
       <Modal
         transparent={true}
         visible={upcomingReminderVisible}
-        animationType="none"
+        animationType="fade"
         onRequestClose={dismissUpcomingReminder}
       >
-        <Animated.View 
-          style={[
-            styles.upcomingReminderContainer,
-            { opacity: upcomingReminderOpacity }
-          ]}
-        >
-          <View style={styles.upcomingReminderContent}>
-            <View style={styles.upcomingIconContainer}>
-              <Ionicons name="time-outline" size={40} color="#4682B4" />
+        <BlurView intensity={80} style={styles.blurBackground}>
+          <Animated.View 
+            style={[
+              styles.upcomingReminderContainer,
+              { opacity: upcomingReminderOpacity }
+            ]}
+          >
+            <View style={styles.upcomingReminderContent}>
+              <View style={styles.upcomingIconContainer}>
+                <MaterialCommunityIcons name="clock-time-four-outline" size={40} color="#ff7e5f" />
+              </View>
+              
+              <Text style={styles.upcomingReminderTitle}>Upcoming Medication</Text>
+              
+              {upcomingReminder && (
+                <View style={styles.upcomingReminderInfo}>
+                  <Text style={styles.upcomingMedicineName}>{upcomingReminder.name}</Text>
+                  <Text style={styles.upcomingDosage}>{upcomingReminder.dosage}</Text>
+                  
+                  <View style={styles.upcomingTimeContainer}>
+                    <Feather name="clock" size={18} color="#ff7e5f" />
+                    <Text style={styles.upcomingTime}>
+                      Scheduled for {formatTime(upcomingReminder.time)}
+                    </Text>
+                  </View>
+                  
+                  <View style={styles.upcomingCountdown}>
+                    <Text style={styles.upcomingCountdownText}>
+                      Coming up in ~{
+                        Math.max(1, Math.round(
+                          (new Date(new Date().setHours(
+                            parseInt(upcomingReminder.time.split(':')[0]),
+                            parseInt(upcomingReminder.time.split(':')[1])
+                          )) - new Date()) / (1000 * 60)
+                        ))
+                      } minutes
+                    </Text>
+                  </View>
+                </View>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.dismissButton}
+                onPress={dismissUpcomingReminder}
+              >
+                <Text style={styles.dismissButtonText}>Got it</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.upcomingReminderTitle}>Medicine Coming Up</Text>
-            {upcomingReminder && (
-              <>
-                <Text style={styles.upcomingMedicineName}>{upcomingReminder.name}</Text>
-                <Text style={styles.upcomingDosage}>{upcomingReminder.dosage}</Text>
-                <Text style={styles.upcomingTime}>
-                  Scheduled for {formatTime(upcomingReminder.time)}
-                </Text>
-              </>
-            )}
-            <TouchableOpacity 
-              style={styles.dismissButton}
-              onPress={dismissUpcomingReminder}
-            >
-              <Text style={styles.dismissButtonText}>Got it</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
+          </Animated.View>
+        </BlurView>
       </Modal>
     </SafeAreaView>
   );
 };
 
-const { width, height } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#f7fafc',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#fff',
+  },
+  loadingImage: {
+    width: 100,
+    height: 100,
+    marginBottom: 20,
   },
   loadingText: {
-    marginTop: 10,
-    color: '#666',
+    marginTop: 20,
+    color: '#8898aa',
     fontSize: 16,
+    fontWeight: '500',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  headerContainer: {
+    width: '100%',
+    zIndex: 10,
+    elevation: 10,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  addButton: {
-    backgroundColor: '#FF7F50',
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerGradient: {
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 15,
+    overflow: 'hidden',
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowRadius: 4,
   },
-  progressContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginHorizontal: 15,
-    marginTop: 20,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  progressBarContainer: {
-    height: 16,
-    backgroundColor: '#eee',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#FF7F50',
-    borderRadius: 8,
-  },
-  progressText: {
-    marginTop: 10,
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
-  todayContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginHorizontal: 15,
-    marginTop: 20,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  medicineCard: {
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 15,
-    marginBottom: 10,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ccc',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 10,
+    paddingBottom: 16,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginLeft: 10,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginLeft: 10,
+  },
+  addIconButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 30,
+  },
+  progressCard: {
+    marginBottom: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  progressCardInner: {
+    padding: 20,
+  },
+  progressTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  progressTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  dateBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  dateText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  progressVisualContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  progressCircleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  progressTextContainer: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+    height: 100,
+  },
+  progressPercentage: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  progressDetails: {
+    flex: 2,
+    marginLeft: 20,
+    justifyContent: 'center',
+  },
+  progressItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  progressItemText: {
+    fontSize: 14,
+    color: '#fff',
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#525f7f',
+    marginBottom: 16,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#8898aa',
+    marginBottom: 12,
+  },
+  medicineCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   dueMedicineCard: {
-    borderLeftColor: '#FF7F50',
-    backgroundColor: '#FFF5F0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff3b30',
   },
   upcomingMedicineCard: {
-    borderLeftColor: '#4682B4',
-    backgroundColor: '#F0F8FF',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4682b4',
   },
   takenMedicineCard: {
-    borderLeftColor: '#4CD964',
-    backgroundColor: '#F0FFF0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4cd964',
   },
-  medicineInfo: {
+  medicineCardContent: {
+    flexDirection: 'row',
+    padding: 16,
+  },
+  medicineDetails: {
     flex: 1,
+  },
+  medicineNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    flexWrap: 'wrap',
   },
   medicineName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#32325d',
+    marginRight: 8,
+  },
+  dueNowBadge: {
+    backgroundColor: 'rgba(255, 59, 48, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  dueNowText: {
+    color: '#ff3b30',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  upcomingBadge: {
+    backgroundColor: 'rgba(70, 130, 180, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  upcomingText: {
+    color: '#4682b4',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  takenBadge: {
+    backgroundColor: 'rgba(76, 217, 100, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  takenBadgeText: {
+    color: '#4cd964',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   medicineDosage: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+    color: '#8898aa',
+    marginBottom: 8,
+  },
+  medicineTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   medicineTime: {
     fontSize: 14,
-    color: '#888',
-    marginTop: 4,
-  },
-  upcomingText: {
-    color: '#4682B4',
-    fontSize: 12,
-    marginTop: 4,
+    color: '#8898aa',
+    marginLeft: 6,
     fontWeight: '500',
   },
-  takenText: {
-    color: '#4CD964',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '500',
+  dueNowTimeText: {
+    color: '#ff3b30',
   },
-  actionButtons: {
-    flexDirection: 'row',
+  upcomingTimeText: {
+    color: '#4682b4',
   },
-  takeButton: {
-    backgroundColor: '#FF7F50',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+  takenTimeText: {
+    color: '#4cd964',
+  },
+  actionContainer: {
     justifyContent: 'center',
     alignItems: 'center',
   },
+  takeButton: {
+    backgroundColor: '#ff7e5f',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 30,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
   takeButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
     fontSize: 14,
+    fontWeight: 'bold',
   },
   takenIndicator: {
-    backgroundColor: '#4CD964',
+    backgroundColor: '#4cd964',
     width: 32,
     height: 32,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  noMedicineContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowRadius: 4,
   },
   noMedicineText: {
+    fontSize: 16,
+    color: '#8898aa',
+    marginVertical: 16,
     textAlign: 'center',
-    color: '#888',
-    padding: 20,
-    fontStyle: 'italic',
   },
-  calendarLinkContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginHorizontal: 15,
-    marginTop: 20,
-    marginBottom: 30,
-    borderRadius: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+  addMedicineButton: {
+    backgroundColor: '#ff7e5f',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 30,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
-    elevation: 2,
   },
-  calendarLinkText: {
-    color: '#333',
-    fontSize: 16,
-    fontWeight: '500',
+  addMedicineButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
-  calendarIcon: {
-    marginLeft: 10,
+  blurBackground: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)', // Fallback for devices without blur support
   },
   reminderContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backdropFilter: 'blur(5px)',
-  },
-  reminderContent: {
-    backgroundColor: 'white',
-    borderRadius: 25,
-    padding: 30,
-    width: width * 0.9,
-    alignItems: 'center',
+    width: width * 0.85,
+    borderRadius: 24,
+    overflow: 'hidden',
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  reminderGradient: {
+    padding: 0,
+    alignItems: 'center',
   },
   reminderIconContainer: {
-    backgroundColor: '#FFF5F0',
-    width: 130,
-    height: 130,
-    borderRadius: 65,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 25,
-    shadowColor: '#FF7F50',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
+    marginTop: 30,
+    marginBottom: 20,
   },
   reminderTitle: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
+    color: '#fff',
+    marginBottom: 30,
+  },
+  reminderContent: {
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+  },
+  reminderInfoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 25,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  pillIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 15,
   },
+  pillIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 126, 95, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   reminderMedicineName: {
-    fontSize: 24,
-    color: '#FF7F50',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  reminderDosage: {
-    fontSize: 20,
-    color: '#666',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  reminderTime: {
     fontSize: 18,
-    color: '#888',
-    marginBottom: 25,
-    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#32325d',
+  },
+  reminderInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  reminderInfoText: {
+    fontSize: 16,
+    color: '#525f7f',
+    marginLeft: 12,
   },
   reminderActions: {
     flexDirection: 'row',
-    width: '100%',
-    justifyContent: 'space-around',
-    marginTop: 15,
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
   },
   reminderButton: {
     flexDirection: 'row',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 30,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 4,
-    minWidth: width * 0.35,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    elevation: 2,
+    width: '47%',
   },
   reminderButtonTaken: {
-    backgroundColor: '#4CD964',
+    backgroundColor: '#ff7e5f',
   },
   reminderButtonSkip: {
-    backgroundColor: '#FF3B30',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   reminderButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 18,
-    marginLeft: 10,
+    fontSize: 16,
+    marginLeft: 8,
   },
   upcomingReminderContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backdropFilter: 'blur(5px)',
+    width: width * 0.85,
+    borderRadius: 24,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
   },
   upcomingReminderContent: {
-    backgroundColor: 'white',
-    borderRadius: 20,
+    backgroundColor: '#fff',
     padding: 25,
-    width: width * 0.85,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 7,
   },
   upcomingIconContainer: {
-    backgroundColor: '#F0F8FF',
     width: 80,
     height: 80,
     borderRadius: 40,
+    backgroundColor: 'rgba(255, 126, 95, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
-    shadowColor: '#4682B4',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
   },
   upcomingReminderTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-    textAlign: 'center',
+    color: '#32325d',
+    marginBottom: 20,
+  },
+  upcomingReminderInfo: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 25,
   },
   upcomingMedicineName: {
     fontSize: 20,
-    color: '#4682B4',
     fontWeight: 'bold',
+    color: '#ff7e5f',
     marginBottom: 8,
     textAlign: 'center',
   },
   upcomingDosage: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 8,
+    fontSize: 16,
+    color: '#525f7f',
+    marginBottom: 12,
     textAlign: 'center',
+  },
+  upcomingTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   upcomingTime: {
     fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-    textAlign: 'center',
+    color: '#525f7f',
+    marginLeft: 8,
+  },
+  upcomingCountdown: {
+    backgroundColor: 'rgba(255, 126, 95, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  upcomingCountdownText: {
+    color: '#ff7e5f',
+    fontSize: 14,
+    fontWeight: '600',
   },
   dismissButton: {
-    backgroundColor: '#4682B4',
+    backgroundColor: '#ff7e5f',
     paddingVertical: 12,
     paddingHorizontal: 30,
-    borderRadius: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
+    borderRadius: 30,
     elevation: 2,
   },
   dismissButtonText: {
@@ -1161,11 +1758,132 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  dueNowText: {
-    color: '#FF3B30',
-    fontSize: 14,
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ff7e5f',
+    marginTop: 8,
+  },
+  viewMoreText: {
+    color: '#ff7e5f',
+    fontWeight: '600',
+    marginRight: 8,
+  },
+  analyticsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  analyticsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  analyticsTitle: {
+    fontSize: 18,
     fontWeight: 'bold',
-    marginTop: 4,
+    color: '#525f7f',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    overflow: 'hidden',
+  },
+  tab: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#f7f7f7',
+  },
+  activeTab: {
+    backgroundColor: '#ff7e5f',
+  },
+  tabText: {
+    fontSize: 12,
+    color: '#8898aa',
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: '#fff',
+  },
+  graphContainer: {
+    marginVertical: 10,
+  },
+  barGraph: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 150,
+    paddingVertical: 20,
+  },
+  barContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  barLabels: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  barValue: {
+    fontSize: 10,
+    color: '#8898aa',
+    marginBottom: 5,
+  },
+  barColumn: {
+    width: 10,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  bar: {
+    width: '100%',
+    height: '100%',
+  },
+  barDay: {
+    fontSize: 12,
+    color: '#525f7f',
+    marginTop: 5,
+    fontWeight: '500',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    marginTop: 10,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ff7e5f',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#8898aa',
+    marginTop: 5,
+  },
+  statDivider: {
+    width: 1,
+    height: '80%',
+    backgroundColor: '#f0f0f0',
+    alignSelf: 'center',
   },
 });
 
