@@ -51,18 +51,19 @@ const Onboarding = ({ navigation }) => {
     blood_type: '',
   });
 
-  const [medications, setMedications] = useState([]);
-  const [tempMedication, setTempMedication] = useState({
-    name: '',
-    dosage: '',
-    frequency: 'daily',
-    time_of_day: new Date(),
-    notes: '',
-  });
+  // Default medications data - will be submitted automatically
+  const defaultMedications = [
+    {
+      name: "Vitamin D3",
+      dosage: "1000 IU",
+      frequency: "daily",
+      time_of_day: "08:00",
+      notes: "Take with breakfast"
+    }
+  ];
 
   // Dropdown states
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [genderOpen, setGenderOpen] = useState(false);
   const [genderItems, setGenderItems] = useState([
     { label: 'Male', value: 'male' },
@@ -84,14 +85,6 @@ const Onboarding = ({ navigation }) => {
     { label: 'Unknown', value: 'unknown' },
   ]);
 
-  const [frequencyOpen, setFrequencyOpen] = useState(false);
-  const [frequencyItems, setFrequencyItems] = useState([
-    { label: 'Daily', value: 'daily' },
-    { label: 'Twice Daily', value: 'twice_daily' },
-    { label: 'Weekly', value: 'weekly' },
-    { label: 'Monthly', value: 'monthly' }
-  ]);
-
   // New condition/allergy input fields
   const [newCondition, setNewCondition] = useState('');
   const [newAllergy, setNewAllergy] = useState('');
@@ -99,8 +92,7 @@ const Onboarding = ({ navigation }) => {
   // Add state to control zIndex dynamically
   const [zIndexes, setZIndexes] = useState({
     gender: 3000,
-    bloodType: 2000,
-    frequency: 1000
+    bloodType: 2000
   });
 
   // Handle dropdown opening
@@ -108,8 +100,7 @@ const Onboarding = ({ navigation }) => {
     setGenderOpen(open);
     setZIndexes({
       gender: open ? 3000 : 1000,
-      bloodType: open ? 1000 : 2000,
-      frequency: open ? 1000 : 3000
+      bloodType: open ? 1000 : 2000
     });
   };
 
@@ -117,17 +108,7 @@ const Onboarding = ({ navigation }) => {
     setBloodTypeOpen(open);
     setZIndexes({
       gender: open ? 1000 : 3000,
-      bloodType: open ? 3000 : 1000,
-      frequency: open ? 1000 : 2000
-    });
-  };
-
-  const handleOpenFrequency = (open) => {
-    setFrequencyOpen(open);
-    setZIndexes({
-      gender: open ? 1000 : 3000,
-      bloodType: open ? 1000 : 2000,
-      frequency: open ? 3000 : 1000
+      bloodType: open ? 3000 : 1000
     });
   };
 
@@ -168,8 +149,10 @@ const Onboarding = ({ navigation }) => {
     updateProgressAnimation(currentStep);
   }, [currentStep]);
 
+  // Update the progress animation to show only 2 steps total
   const updateProgressAnimation = (step) => {
-    const progressValue = (step - 1) / 3;
+    // Adjust to show only 2 steps (0 to 1)
+    const progressValue = (step - 1);
     Animated.timing(progressAnim, {
       toValue: progressValue,
       duration: 300,
@@ -220,13 +203,6 @@ const Onboarding = ({ navigation }) => {
     }
   };
 
-  const handleTimeChange = (event, selectedTime) => {
-    setShowTimePicker(false);
-    if (selectedTime) {
-      setTempMedication({...tempMedication, time_of_day: selectedTime});
-    }
-  };
-
   const addHealthCondition = () => {
     if (newCondition.trim() !== '') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -263,39 +239,6 @@ const Onboarding = ({ navigation }) => {
     setHealthProfile({...healthProfile, allergies: updatedAllergies});
   };
 
-  const addMedication = () => {
-    if (tempMedication.name && tempMedication.dosage && tempMedication.frequency) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
-      // Format time to string format for display
-      const formattedMedication = {
-        ...tempMedication,
-        time_of_day: tempMedication.time_of_day instanceof Date ? 
-          tempMedication.time_of_day.toISOString() : 
-          tempMedication.time_of_day
-      };
-      
-      setMedications([...medications, formattedMedication]);
-      setTempMedication({
-        name: '',
-        dosage: '',
-        frequency: 'daily',
-        time_of_day: new Date(),
-        notes: '',
-      });
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Required Fields', 'Please fill in name, dosage, and frequency');
-    }
-  };
-
-  const removeMedication = (index) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const updatedMedications = [...medications];
-    updatedMedications.splice(index, 1);
-    setMedications(updatedMedications);
-  };
-
   const validateBasicProfile = () => {
     if (!basicProfile.gender) {
       Alert.alert('Required Field', 'Please select your gender');
@@ -311,14 +254,6 @@ const Onboarding = ({ navigation }) => {
     }
     if (healthProfile.allergies.length === 0) {
       Alert.alert('Health Information', 'Please add at least one allergy or "None" if not applicable');
-      return false;
-    }
-    return true;
-  };
-
-  const validateMedications = () => {
-    if (medications.length === 0) {
-      Alert.alert('Medications', 'Please add at least one medication');
       return false;
     }
     return true;
@@ -398,52 +333,8 @@ const Onboarding = ({ navigation }) => {
         throw new Error(data.message || 'Failed to update health profile');
       }
 
-      // Update local user data
-      const userDataString = await AsyncStorage.getItem('userData');
-      if (userDataString) {
-        const parsedUserData = JSON.parse(userDataString);
-        await AsyncStorage.setItem('userData', JSON.stringify({
-          ...parsedUserData,
-          onboardingStep: 3
-        }));
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCurrentStep(3);
-    } catch (error) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const submitMedications = async () => {
-    if (!validateMedications()) return;
-
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setIsLoading(true);
-
-      const token = await AsyncStorage.getItem('accessToken');
-      
-      const response = await fetch(`${SERVER_URL}/api/onboarding/medications`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ medications }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to add medications');
-      }
-
-      // Complete onboarding
-      await completeOnboarding();
+      // Since we're skipping step 3, automatically submit the default medications
+      await submitDefaultMedications();
 
       // Update local user data
       const userDataString = await AsyncStorage.getItem('userData');
@@ -451,7 +342,7 @@ const Onboarding = ({ navigation }) => {
         const parsedUserData = JSON.parse(userDataString);
         await AsyncStorage.setItem('userData', JSON.stringify({
           ...parsedUserData,
-          onboardingStep: 4,
+          onboardingStep: 3,  // Mark as completed all steps
           onboardingComplete: true
         }));
       }
@@ -463,6 +354,35 @@ const Onboarding = ({ navigation }) => {
       Alert.alert('Error', error.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const submitDefaultMedications = async () => {
+    try {
+      const token = await AsyncStorage.getItem('accessToken');
+      
+      const response = await fetch(`${SERVER_URL}/api/onboarding/medications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ medications: defaultMedications }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to add default medications');
+      }
+
+      // Complete onboarding
+      await completeOnboarding();
+      
+      return true;
+    } catch (error) {
+      console.error("Error submitting default medications:", error);
+      throw error;
     }
   };
 
@@ -482,36 +402,10 @@ const Onboarding = ({ navigation }) => {
     }
   };
 
-  // Progress bar width calculation
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0%', '100%'],
   });
-
-  const formatTime = (timeIso) => {
-    try {
-      if (!timeIso) return '';
-      
-      if (timeIso instanceof Date) {
-        return timeIso.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
-      
-      if (typeof timeIso === 'string') {
-        // Handle ISO string format
-        const date = new Date(timeIso);
-        if (!isNaN(date.getTime())) {
-          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-        
-        return timeIso; // Just return the string if it's not ISO format
-      }
-      
-      return '';
-    } catch (error) {
-      console.error('Error formatting time:', error);
-      return '';
-    }
-  };
 
   const renderStepIndicator = () => {
     return (
@@ -525,7 +419,7 @@ const Onboarding = ({ navigation }) => {
           />
         </View>
         <View style={styles.steps}>
-          {[1, 2, 3].map((step) => (
+          {[1, 2].map((step) => (
             <View key={step} style={styles.stepCircleContainer}>
               <View 
                 style={[
@@ -542,7 +436,7 @@ const Onboarding = ({ navigation }) => {
                 )}
               </View>
               <Text style={styles.stepLabel}>
-                {step === 1 ? 'Basics' : step === 2 ? 'Health' : 'Meds'}
+                {step === 1 ? 'Basics' : 'Health'}
               </Text>
             </View>
           ))}
@@ -835,224 +729,6 @@ const Onboarding = ({ navigation }) => {
                   <ActivityIndicator color="white" />
                 ) : (
                   <>
-                    <Text style={styles.nextButtonText}>Continue</Text>
-                    <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </View>
-    );
-  };
-
-  const renderMedicationsStep = () => {
-    return (
-      <View style={styles.scrollContent}>
-        <View style={styles.stepHeader}>
-          <MaterialCommunityIcons name="pill" size={28} color="#ff7e5f" />
-          <Text style={styles.stepTitle}>Medications</Text>
-        </View>
-        <Text style={styles.stepDescription}>
-          Add medications you're currently taking
-        </Text>
-
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled={true}
-          contentContainerStyle={styles.formContainer}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.medicationCard}>
-            <Text style={styles.cardTitle}>Add Medication</Text>
-            
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Medication Name*</Text>
-              <View style={styles.inputContainer}>
-                <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter medication name"
-                  value={tempMedication.name}
-                  onChangeText={(text) => setTempMedication({...tempMedication, name: text})}
-                />
-              </View>
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Dosage*</Text>
-              <View style={styles.inputContainer}>
-                <MaterialCommunityIcons name="scale" size={20} color="#ff7e5f" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter dosage (e.g., 50mg)"
-                  value={tempMedication.dosage}
-                  onChangeText={(text) => setTempMedication({...tempMedication, dosage: text})}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.formGroup, { zIndex: zIndexes.frequency }]}>
-              <Text style={styles.label}>Frequency*</Text>
-              <DropDownPicker
-                open={frequencyOpen}
-                value={tempMedication.frequency}
-                items={frequencyItems}
-                setOpen={handleOpenFrequency}
-                setValue={(callback) => {
-                  if (typeof callback === 'function') {
-                    setTempMedication((prev) => ({ ...prev, frequency: callback(prev.frequency) }));
-                  } else {
-                    setTempMedication({ ...tempMedication, frequency: callback });
-                  }
-                  Haptics.selectionAsync();
-                }}
-                setItems={setFrequencyItems}
-                style={styles.dropdown}
-                dropDownContainerStyle={styles.dropdownContainer}
-                placeholderStyle={styles.placeholderStyle}
-                placeholder="Select frequency"
-                listMode="SCROLLVIEW"
-                scrollViewProps={{ nestedScrollEnabled: true }}
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Time of Day*</Text>
-              <TouchableOpacity 
-                style={styles.datePickerButton}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setShowTimePicker(true);
-                }}
-              >
-                <Text style={styles.dateText}>
-                  {formatTime(tempMedication.time_of_day)}
-                </Text>
-                <MaterialCommunityIcons name="clock-outline" size={20} color="#ff7e5f" />
-              </TouchableOpacity>
-              {showTimePicker && (
-                <DateTimePicker
-                  value={tempMedication.time_of_day instanceof Date ? 
-                    tempMedication.time_of_day : new Date()}
-                  mode="time"
-                  display="default"
-                  onChange={handleTimeChange}
-                />
-              )}
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Notes (Optional)</Text>
-              <View style={styles.inputContainer}>
-                <MaterialCommunityIcons name="text" size={20} color="#ff7e5f" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Any special instructions"
-                  value={tempMedication.notes}
-                  onChangeText={(text) => setTempMedication({...tempMedication, notes: text})}
-                  multiline
-                />
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.addMedicationButton}
-              onPress={addMedication}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#ff9966', '#ff5e62']}
-                style={styles.gradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                <Text style={styles.nextButtonText}>Add Medication</Text>
-                <MaterialCommunityIcons name="plus" size={20} color="white" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.medicationListHeader}>Your Medications ({medications.length})</Text>
-          
-          {medications.length === 0 ? (
-            <View style={styles.emptyMedicationList}>
-              <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
-              <Text style={styles.emptyListText}>No medications added yet</Text>
-              <Text style={styles.emptyListSubText}>Add at least one medication to continue</Text>
-            </View>
-          ) : (
-            <View style={styles.medicationList}>
-              {medications.map((med, index) => (
-                <View key={index} style={styles.medicationItem}>
-                  <View style={styles.medicationDetails}>
-                    <View style={styles.medicationNameContainer}>
-                      <MaterialCommunityIcons name="pill" size={20} color="#ff7e5f" />
-                      <Text style={styles.medicationName}>{med.name}</Text>
-                    </View>
-                    <View style={styles.medicationInfoRow}>
-                      <Text style={styles.medicationInfoLabel}>Dosage:</Text>
-                      <Text style={styles.medicationInfoValue}>{med.dosage}</Text>
-                    </View>
-                    <View style={styles.medicationInfoRow}>
-                      <Text style={styles.medicationInfoLabel}>Frequency:</Text>
-                      <Text style={styles.medicationInfoValue}>{
-                        frequencyItems.find(item => item.value === med.frequency)?.label || med.frequency
-                      }</Text>
-                    </View>
-                    {med.time_of_day ? (
-                      <View style={styles.medicationInfoRow}>
-                        <Text style={styles.medicationInfoLabel}>Time:</Text>
-                        <Text style={styles.medicationInfoValue}>{formatTime(med.time_of_day)}</Text>
-                      </View>
-                    ) : null}
-                    {med.notes ? (
-                      <View style={styles.medicationNotes}>
-                        <Text style={styles.medicationInfoLabel}>Notes:</Text>
-                        <Text style={styles.medicationInfoValue}>{med.notes}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <TouchableOpacity
-                    style={styles.removeMedicationButton}
-                    onPress={() => removeMedication(index)}
-                  >
-                    <MaterialCommunityIcons name="delete" size={20} color="#ff5e62" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setCurrentStep(2);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.backButtonText}>Back</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.nextButton, medications.length === 0 && styles.disabledButton]}
-              onPress={submitMedications}
-              activeOpacity={0.8}
-              disabled={isLoading || medications.length === 0}
-            >
-              <LinearGradient
-                colors={medications.length === 0 ? ['#ccc', '#aaa'] : ['#ff9966', '#ff5e62']}
-                style={styles.gradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <>
                     <Text style={styles.nextButtonText}>Finish</Text>
                     <MaterialCommunityIcons name="check" size={20} color="white" />
                   </>
@@ -1079,7 +755,6 @@ const Onboarding = ({ navigation }) => {
         <View style={styles.contentContainer}>
           {currentStep === 1 && renderBasicProfileStep()}
           {currentStep === 2 && renderHealthProfileStep()}
-          {currentStep === 3 && renderMedicationsStep()}
         </View>
       </Animated.View>
     </KeyboardAvoidingView>
@@ -1309,112 +984,7 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.7,
-  },
-  medicationCard: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#eee',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  addMedicationButton: {
-    height: 50,
-    borderRadius: 10,
-    overflow: 'hidden',
-    marginTop: 10,
-  },
-  medicationListHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  emptyMedicationList: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderStyle: 'dashed',
-  },
-  emptyListText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#aaa',
-    marginTop: 10,
-  },
-  emptyListSubText: {
-    fontSize: 14,
-    color: '#aaa',
-    textAlign: 'center',
-    marginTop: 5,
-  },
-  medicationList: {
-    marginBottom: 20,
-  },
-  medicationItem: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#eee',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  medicationDetails: {
-    flex: 1,
-  },
-  medicationNameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  medicationName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 8,
-  },
-  medicationInfoRow: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  medicationInfoLabel: {
-    fontSize: 14,
-    color: '#666',
-    width: 70,
-  },
-  medicationInfoValue: {
-    fontSize: 14,
-    color: '#333',
-    flex: 1,
-  },
-  medicationNotes: {
-    marginTop: 4,
-  },
-  removeMedicationButton: {
-    padding: 10,
-    alignSelf: 'center',
-  },
+  }
 });
 
 export default Onboarding;

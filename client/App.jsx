@@ -12,6 +12,9 @@ import Register from './screens/Register.jsx';
 import Home from './screens/Home.jsx';
 import AddMedicine from './screens/AddMedicine.jsx';
 import Schedule from './screens/Schedule.jsx';
+import Emergency from './screens/Emergency.jsx';
+import Chat from './screens/Chat.jsx';
+import Profile from './screens/Profile.jsx';
 
 // Create the navigator
 const Stack = createNativeStackNavigator();
@@ -20,7 +23,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        <Stack.Navigator initialRouteName="Register">
+        <Stack.Navigator initialRouteName="Login">
           <Stack.Screen 
             name="Register" 
             component={Register} 
