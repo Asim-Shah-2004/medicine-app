@@ -206,66 +206,62 @@ const Home = () => {
     return `${formattedHour}:${minutes} ${ampm}`;
   };
 
-  // Play alert sound for due medicine
+  // Sound related functions
   const playAlertSound = async () => {
     try {
-      // Use strong haptic feedback
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      
+      if (sound.current) {
+        await sound.current.unloadAsync();
+      }
       const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/alert.mp3'),
+        require('../assets/sounds/reminder.mp3'),
         { shouldPlay: true, isLooping: true }
       );
-      
       sound.current = newSound;
-      
-      // Vibrate device every 2 seconds
-      const vibrateInterval = setInterval(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 2000);
-      
-      sound.current.vibrateInterval = vibrateInterval;
-      
-      // Auto-stop after 30 seconds
-      setTimeout(() => {
-        if (sound.current) {
-          clearInterval(vibrateInterval);
-          sound.current.stopAsync();
-          sound.current.unloadAsync();
-        }
-      }, 30000);
     } catch (error) {
-      console.log('Sound playback failed, using vibration only');
+      console.error('Error playing alert sound:', error);
+      // Fallback to vibration
       Vibration.vibrate([500, 1000, 500, 1000], true);
     }
   };
 
-  // Play upcoming reminder sound
   const playUpcomingSound = async () => {
     try {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Vibration.vibrate(500);
+      if (sound.current) {
+        await sound.current.unloadAsync();
+      }
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        require('../assets/sounds/notification.mp3'),
+        { shouldPlay: true }
+      );
+      sound.current = newSound;
+      await newSound.playAsync();
     } catch (error) {
-      console.log('Haptic feedback failed');
+      console.error('Error playing upcoming sound:', error);
+      // Fallback to vibration
+      Vibration.vibrate(500);
     }
   };
 
-  // Stop any playing sounds and vibrations
   const stopAlertSound = async () => {
     try {
-      Vibration.cancel();
       if (sound.current) {
-        if (sound.current.vibrateInterval) {
-          clearInterval(sound.current.vibrateInterval);
-        }
         await sound.current.stopAsync();
         await sound.current.unloadAsync();
         sound.current = null;
       }
     } catch (error) {
-      console.log('Error stopping sound:', error);
+      console.error('Error stopping alert sound:', error);
     }
   };
+
+  // Cleanup sound when component unmounts
+  useEffect(() => {
+    return () => {
+      if (sound.current) {
+        sound.current.unloadAsync();
+      }
+    };
+  }, []);
 
   // Check if medicine is due now (within 1 minute)
   const isDueNow = (timeString) => {

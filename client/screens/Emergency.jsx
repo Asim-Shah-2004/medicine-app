@@ -14,6 +14,8 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SERVER_URL } from '@env';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 
 const { width, height } = Dimensions.get('window');
 
@@ -23,7 +25,18 @@ const EmergencyScreen = ({ navigation }) => {
   const [hasContacts, setHasContacts] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRecordingLoaded, setIsRecordingLoaded] = useState(false);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const recording = React.useRef(null);
+
+  // Check contacts when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      fetchUserProfile();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     fetchUserProfile();
@@ -52,7 +65,14 @@ const EmergencyScreen = ({ navigation }) => {
       pulseAnim.stopAnimation();
       pulseAnim.setValue(1);
     }
-  }, [isListening]);
+
+    // Cleanup recording when component unmounts
+    return () => {
+      if (recording.current && isRecordingLoaded) {
+        recording.current.stopAndUnloadAsync();
+      }
+    };
+  }, [isRecordingLoaded]);
 
   const fetchUserProfile = async () => {
     try {
@@ -89,37 +109,107 @@ const EmergencyScreen = ({ navigation }) => {
     }
   };
 
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recording.current = newRecording;
+      setIsRecordingLoaded(true);
+      setIsListening(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      Alert.alert('Error', 'Failed to start recording. Please try again.');
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      if (!recording.current || !isRecordingLoaded) return;
+
+      setIsListening(false);
+      setIsProcessing(true);
+
+      await recording.current.stopAndUnloadAsync();
+      const uri = recording.current.getURI();
+      setIsRecordingLoaded(false);
+      recording.current = null;
+
+      // Send the recording to backend
+      await sendEmergencyMessage(uri);
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+      setIsListening(false);
+      setIsProcessing(false);
+      setIsRecordingLoaded(false);
+      Alert.alert('Error', 'Failed to process recording. Please try again.');
+    }
+  };
+
+  const sendEmergencyMessage = async (audioUri) => {
+    try {
+      const token = await AsyncStorage.getItem('accessToken');
+      
+      // Create form data with both audio file and text transcription request
+      const formData = new FormData();
+      formData.append('audio', {
+        uri: audioUri,
+        type: 'audio/m4a',
+        name: 'emergency_message.m4a'
+      });
+      formData.append('transcribe', 'true');  // Request transcription from server
+
+      const response = await fetch(`${SERVER_URL}/api/help`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        Alert.alert(
+          "Emergency Alert Sent",
+          data.message || "Your emergency message has been sent to your contacts",
+          [{ text: "OK" }]
+        );
+      } else {
+        throw new Error(data.message || 'Failed to send emergency message');
+      }
+    } catch (error) {
+      console.error('Error sending emergency message:', error);
+      Alert.alert(
+        "Error",
+        "Failed to send emergency message. Please try again."
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const showToast = (title, message) => {
     Alert.alert(title, message);
   };
 
-  const handleMicPress = () => {
+  const handleMicPress = async () => {
     if (!hasContacts) {
       navigation.navigate('Profile');
       return;
     }
     
-    setIsListening(!isListening);
-    
     if (!isListening) {
-      // Start recording/listening logic would go here with expo-av
-      // For now, just simulating with a timeout
-      setTimeout(() => {
-        setIsListening(false);
-        setIsProcessing(true);
-        
-        // Simulate processing the voice command
-        setTimeout(() => {
-          setIsProcessing(false);
-          Alert.alert(
-            "Emergency Alert",
-            "Emergency message sent to your contacts",
-            [{ text: "OK" }]
-          );
-        }, 2000);
-      }, 3000);
+      await startRecording();
     } else {
-      // Stop recording/listening logic would go here
+      await stopRecording();
     }
   };
 
