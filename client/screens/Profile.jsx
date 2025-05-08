@@ -116,6 +116,10 @@ const Profile = ({ navigation }) => {
         emergency_contacts: emergencyContacts
       };
 
+      if (updatedProfile._id) {
+        delete updatedProfile._id;
+      }
+
       const response = await fetch(`${SERVER_URL}/api/user/profile`, {
         method: 'PUT',
         headers: {
@@ -125,15 +129,18 @@ const Profile = ({ navigation }) => {
         body: JSON.stringify(updatedProfile)
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server response error:', errorText);
+        throw new Error(response.statusText);
+      }
+
       const data = await response.json();
 
-      if (response.ok) {
-        setProfile(data);
-        setEditMode(false);
-        Alert.alert('Success', 'Profile updated successfully');
-      } else {
-        Alert.alert('Error', data.message || 'Failed to update profile');
-      }
+      setProfile(data);
+      setEditedProfile(data);
+      setEditMode(false);
+      Alert.alert('Success', 'Profile updated successfully');
     } catch (error) {
       console.error('Error updating profile:', error);
       Alert.alert('Error', 'Failed to update profile. Please try again.');

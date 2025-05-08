@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.services.user_service import UserService
 from app.utils.token_utils import token_required
+from datetime import datetime
 
 user_bp = Blueprint('user', __name__)
 
@@ -27,6 +28,17 @@ def update_profile(user_id):
     
     if not data:
         return jsonify({'message': 'No input data provided'}), 400
+    
+    # Special handling for emergency contacts to ensure proper structure
+    if 'emergency_contacts' in data:
+        for contact in data['emergency_contacts']:
+            # Ensure each contact has required fields
+            if 'name' not in contact:
+                return jsonify({'message': 'Each emergency contact must have a name'}), 400
+            
+            # Ensure contact has an ID
+            if 'id' not in contact:
+                contact['id'] = str(int(datetime.now().timestamp() * 1000))
     
     success, result, status_code = UserService.update_user_profile(user_id, data)
     

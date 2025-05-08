@@ -40,6 +40,10 @@ class UserService:
         if 'password' in profile_data:
             profile_data.pop('password')
         
+        # Remove _id field if present to prevent the immutability error
+        if '_id' in profile_data:
+            profile_data.pop('_id')
+        
         # Ensure email and username cannot be changed if they already exist
         if 'email' in profile_data or 'username' in profile_data:
             existing_user = db.users.find_one({'_id': ObjectId(user_id)})
