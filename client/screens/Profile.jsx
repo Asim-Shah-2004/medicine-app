@@ -282,7 +282,7 @@ const ProfileScreen = ({ navigation }) => {
         <MaterialCommunityIcons 
           name={icon} 
           size={22} 
-          color={isActive ? '#FF7F50' : '#888'} 
+          color={isActive ? '#ff5e62' : '#888'} 
         />
         <Text style={[styles.sectionTabText, isActive && styles.activeTabText]}>
           {label}
@@ -294,9 +294,9 @@ const ProfileScreen = ({ navigation }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF7F50" />
+        <ActivityIndicator size="large" color="#ff5e62" />
         <LinearGradient
-          colors={['#FF9800', '#FF7F50']}
+          colors={['#ff9966', '#ff5e62']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.loadingGradient}
@@ -342,7 +342,7 @@ const ProfileScreen = ({ navigation }) => {
         {/* Profile Header */}
         <View style={styles.profileHeaderContainer}>
           <LinearGradient
-            colors={['#FF9800', '#FF7F50']}
+            colors={['#ff9966', '#ff5e62']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.headerGradient}
@@ -367,7 +367,7 @@ const ProfileScreen = ({ navigation }) => {
               activeOpacity={editMode ? 0.7 : 1}
             >
               <LinearGradient
-                colors={['#FFCC80', '#FF8A65']}
+                colors={['#FFCC80', '#ff5e62']}
                 style={styles.profileImageBorder}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
@@ -407,7 +407,7 @@ const ProfileScreen = ({ navigation }) => {
             disabled={saving}
           >
             <LinearGradient
-              colors={editMode ? ['#4CAF50', '#2E7D32'] : ['#FF9800', '#FF7F50']}
+              colors={editMode ? ['#4CAF50', '#2E7D32'] : ['#ff9966', '#ff5e62']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.editButtonGradient}
@@ -462,7 +462,7 @@ const ProfileScreen = ({ navigation }) => {
           {activeSection === 'personal' && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Feather name="user" size={22} color="#FF7F50" />
+                <Feather name="user" size={22} color="#ff5e62" />
                 <Text style={styles.sectionTitle}>Personal Information</Text>
               </View>
 
@@ -555,7 +555,7 @@ const ProfileScreen = ({ navigation }) => {
           {activeSection === 'health' && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Feather name="heart" size={22} color="#FF7F50" />
+                <Feather name="heart" size={22} color="#ff5e62" />
                 <Text style={styles.sectionTitle}>Health Information</Text>
               </View>
 
@@ -578,7 +578,7 @@ const ProfileScreen = ({ navigation }) => {
                   <View style={styles.bodyMetricsContainer}>
                     {profile.height && (
                       <View style={styles.metricCard}>
-                        <Feather name="arrow-up" size={18} color="#FF7F50" />
+                        <Feather name="arrow-up" size={18} color="#ff5e62" />
                         <Text style={styles.metricValue}>{profile.height}</Text>
                         <Text style={styles.metricUnit}>cm</Text>
                         <Text style={styles.metricLabel}>Height</Text>
@@ -587,7 +587,7 @@ const ProfileScreen = ({ navigation }) => {
                     
                     {profile.weight && (
                       <View style={styles.metricCard}>
-                        <Feather name="bar-chart-2" size={18} color="#FF7F50" />
+                        <Feather name="bar-chart-2" size={18} color="#ff5e62" />
                         <Text style={styles.metricValue}>{profile.weight}</Text>
                         <Text style={styles.metricUnit}>kg</Text>
                         <Text style={styles.metricLabel}>Weight</Text>
@@ -599,7 +599,7 @@ const ProfileScreen = ({ navigation }) => {
                 {profile.health_conditions && profile.health_conditions.length > 0 && (
                   <View style={styles.healthSection}>
                     <Text style={styles.healthSectionTitle}>
-                      <Feather name="activity" size={16} color="#FF7F50" /> Health Conditions
+                      <Feather name="activity" size={16} color="#ff5e62" /> Health Conditions
                     </Text>
                     <View style={styles.tagContainer}>
                       {profile.health_conditions.map((condition, index) => (
@@ -614,7 +614,7 @@ const ProfileScreen = ({ navigation }) => {
                 {profile.allergies && profile.allergies.length > 0 && (
                   <View style={styles.healthSection}>
                     <Text style={styles.healthSectionTitle}>
-                      <MaterialCommunityIcons name="allergy" size={16} color="#FF7F50" /> Allergies
+                      <MaterialCommunityIcons name="allergy" size={16} color="#ff5e62" /> Allergies
                     </Text>
                     <View style={styles.tagContainer}>
                       {profile.allergies.map((allergy, index) => (
@@ -644,7 +644,7 @@ const ProfileScreen = ({ navigation }) => {
           {activeSection === 'contacts' && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Feather name="users" size={22} color="#FF7F50" />
+                <Feather name="users" size={22} color="#ff5e62" />
                 <Text style={styles.sectionTitle}>Emergency Contacts</Text>
               </View>
 
@@ -664,7 +664,7 @@ const ProfileScreen = ({ navigation }) => {
                       onPress={() => setAddingContact(true)}
                     >
                       <LinearGradient
-                        colors={['#FF9800', '#FF7F50']}
+                        colors={['#ff9966', '#ff5e62']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         style={styles.emptyAddButtonGradient}
@@ -731,7 +731,7 @@ const ProfileScreen = ({ navigation }) => {
                       style={styles.addContactButton}
                       onPress={() => setAddingContact(true)}
                     >
-                      <Feather name="plus" size={18} color="#FF7F50" />
+                      <Feather name="plus" size={18} color="#ff5e62" />
                       <Text style={styles.addContactText}>Add Emergency Contact</Text>
                     </TouchableOpacity>
                   )}
@@ -793,7 +793,7 @@ const ProfileScreen = ({ navigation }) => {
                     onPress={addEmergencyContact}
                   >
                     <LinearGradient
-                      colors={['#FF9800', '#FF7F50']}
+                      colors={['#ff9966', '#ff5e62']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.formSubmitGradient}
@@ -927,13 +927,13 @@ const styles = StyleSheet.create({
   profileInitial: {
     fontSize: 40,
     fontWeight: 'bold',
-    color: '#FF7F50',
+    color: '#ff5e62',
   },
   editProfileImageOverlay: {
     position: 'absolute',
     bottom: 0,
     right: -5,
-    backgroundColor: '#FF7F50',
+    backgroundColor: '#ff5e62',
     borderRadius: 18,
     width: 36,
     height: 36,
@@ -1035,7 +1035,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#FF7F50',
+    borderBottomColor: '#ff5e62',
   },
   sectionTabText: {
     color: '#888',
@@ -1044,7 +1044,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   activeTabText: {
-    color: '#FF7F50',
+    color: '#ff5e62',
     fontWeight: '600',
   },
   contentContainer: {
@@ -1124,7 +1124,7 @@ const styles = StyleSheet.create({
   bloodTypeText: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FF7F50',
+    color: '#ff5e62',
   },
   bloodTypeLabel: {
     fontSize: 14,
@@ -1189,7 +1189,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFECB3',
   },
   allergyTagText: {
-    color: '#FF7F50',
+    color: '#ff5e62',
   },
   emptyStateContainer: {
     alignItems: 'center',
@@ -1257,7 +1257,7 @@ const styles = StyleSheet.create({
   contactInitial: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#FF7F50',
+    color: '#ff5e62',
   },
   contactInfo: {
     flex: 1,
@@ -1302,13 +1302,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 15,
     borderWidth: 1,
-    borderColor: '#FF7F50',
+    borderColor: '#ff5e62',
     borderRadius: 12,
     borderStyle: 'dashed',
     marginTop: 10,
   },
   addContactText: {
-    color: '#FF7F50',
+    color: '#ff5e62',
     marginLeft: 8,
     fontWeight: '500',
   },
@@ -1343,7 +1343,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   requiredStar: {
-    color: '#FF7F50',
+    color: '#ff5e62',
   },
   formInput: {
     backgroundColor: '#f5f5f5',
