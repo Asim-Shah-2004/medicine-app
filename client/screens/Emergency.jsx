@@ -100,7 +100,7 @@ const EmergencyScreen = ({ navigation }) => {
         
         // Find nearby hospitals when location is available
         if (currentLocation) {
-          findNearbyHospitals(currentLocation.coords);
+          findRealNearbyHospitals(currentLocation.coords);
         }
       }
     } catch (error) {
@@ -108,71 +108,199 @@ const EmergencyScreen = ({ navigation }) => {
     }
   };
 
-  // Simulate finding nearby hospitals (in a real app, you would use an API)
-  const findNearbyHospitals = (coords) => {
-    // Simulated nearby hospitals data (in a real app, this would come from an API)
-    const simulatedHospitals = [
-      {
-        id: 1,
-        name: 'City General Hospital',
-        distance: '1.2 km',
-        coordinate: {
-          latitude: coords.latitude + 0.01,
-          longitude: coords.longitude + 0.01,
+  // Find real nearby hospitals using OpenStreetMap API
+  const findRealNearbyHospitals = async (coords) => {
+    try {
+      setLoading(true);
+      const { latitude, longitude } = coords;
+      
+      // Call OpenStreetMap's Nominatim API to find hospitals
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=hospital,clinic,medical&limit=5&lat=${latitude}&lon=${longitude}&radius=5000`,
+        {
+          headers: {
+            'Accept-Language': 'en-US,en',
+            'User-Agent': 'MedicineApp/1.0' // Required by OSM policy
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch hospitals');
+      }
+      
+      const data = await response.json();
+      console.log('Found hospitals:', data);
+      
+      // Transform the data into a format we can use
+      const hospitals = data.map((item, index) => {
+        // Calculate rough distance using Haversine formula
+        const distance = calculateDistance(
+          coords.latitude,
+          coords.longitude,
+          parseFloat(item.lat),
+          parseFloat(item.lon)
+        );
+        
+        return {
+          id: index + 1,
+          name: item.display_name.split(',')[0], // Get the first part of the name
+          fullName: item.display_name,
+          distance: `${distance.toFixed(1)} km`,
+          distanceValue: distance,
+          coordinate: {
+            latitude: parseFloat(item.lat),
+            longitude: parseFloat(item.lon),
+          },
+          type: item.type,
+          osm_id: item.osm_id
+        };
+      });
+      
+      // Sort by distance
+      hospitals.sort((a, b) => a.distanceValue - b.distanceValue);
+      
+      setNearbyHospitals(hospitals);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error finding hospitals:', error);
+      Alert.alert('Error', 'Failed to find nearby hospitals. Using simulated data instead.');
+      
+      // Fallback to simulated data if API fails
+      const simulatedHospitals = [
+        {
+          id: 1,
+          name: 'City General Hospital',
+          distance: '1.2 km',
+          distanceValue: 1.2,
+          coordinate: {
+            latitude: coords.latitude + 0.01,
+            longitude: coords.longitude + 0.01,
+          },
         },
-      },
-      {
-        id: 2,
-        name: 'Community Medical Center',
-        distance: '2.5 km',
-        coordinate: {
-          latitude: coords.latitude - 0.01,
-          longitude: coords.longitude + 0.005,
+        {
+          id: 2,
+          name: 'Community Medical Center',
+          distance: '2.5 km',
+          distanceValue: 2.5,
+          coordinate: {
+            latitude: coords.latitude - 0.01,
+            longitude: coords.longitude + 0.005,
+          },
         },
-      },
-      {
-        id: 3,
-        name: 'University Hospital',
-        distance: '3.8 km',
-        coordinate: {
-          latitude: coords.latitude + 0.005,
-          longitude: coords.longitude - 0.01,
+        {
+          id: 3,
+          name: 'University Hospital',
+          distance: '3.8 km',
+          distanceValue: 3.8,
+          coordinate: {
+            latitude: coords.latitude + 0.005,
+            longitude: coords.longitude - 0.01,
+          },
         },
-      },
-    ];
-    
-    setNearbyHospitals(simulatedHospitals);
+      ];
+      
+      setNearbyHospitals(simulatedHospitals);
+      setLoading(false);
+    }
+  };
+  
+  // Calculate distance using Haversine formula (for rough distance estimation)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+    const distance = R * c; // Distance in km
+    return distance;
+  };
+  
+  const deg2rad = (deg) => {
+    return deg * (Math.PI / 180);
   };
 
-  // Simulate route to hospital (in a real app, you would use a routing API)
-  const getRouteToHospital = (hospital) => {
-    if (!location || !hospital) return null;
-    
-    // Create a simple straight line route (in a real app, this would be an actual route)
-    const startCoords = {
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-    };
-    
-    // Simulate a route with waypoints (in a real app, this would come from a routing API)
-    const waypoints = [
-      startCoords,
-      {
-        latitude: (startCoords.latitude + hospital.coordinate.latitude) / 2,
-        longitude: (startCoords.longitude + hospital.coordinate.longitude) / 2,
-      },
-      hospital.coordinate,
-    ];
-    
-    setRoute(waypoints);
-    setSelectedHospital(hospital);
-    
-    // Center the map to show the route
-    if (mapRef.current) {
-      mapRef.current.fitToCoordinates(waypoints, {
-        edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-        animated: true,
-      });
+  // Get real route using OSRM (OpenStreetMap Routing Machine) API
+  const getRouteToHospital = async (hospital) => {
+    try {
+      if (!location || !hospital) return null;
+      
+      setLoading(true);
+      
+      const startCoords = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      
+      // Call OSRM API for route planning
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${startCoords.longitude},${startCoords.latitude};${hospital.coordinate.longitude},${hospital.coordinate.latitude}?overview=full&geometries=geojson`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to calculate route');
+      }
+      
+      const data = await response.json();
+      console.log('Route data:', data);
+      
+      if (data.routes && data.routes.length > 0) {
+        // OSRM returns coordinates as [longitude, latitude], but we need [latitude, longitude]
+        const routeCoordinates = data.routes[0].geometry.coordinates.map(coord => ({
+          latitude: coord[1],
+          longitude: coord[0]
+        }));
+        
+        setRoute(routeCoordinates);
+        setSelectedHospital(hospital);
+        
+        // Center the map to show the route
+        if (mapRef.current) {
+          mapRef.current.fitToCoordinates(routeCoordinates, {
+            edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+            animated: true,
+          });
+        }
+        
+        setLoading(false);
+      } else {
+        throw new Error('No route found');
+      }
+    } catch (error) {
+      console.error('Error getting route:', error);
+      Alert.alert('Error', 'Failed to calculate route. Using direct line instead.');
+      
+      // Fallback to direct line if API fails
+      const startCoords = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      
+      // Create a simple straight line route as fallback
+      const waypoints = [
+        startCoords,
+        {
+          latitude: (startCoords.latitude + hospital.coordinate.latitude) / 2,
+          longitude: (startCoords.longitude + hospital.coordinate.longitude) / 2,
+        },
+        hospital.coordinate,
+      ];
+      
+      setRoute(waypoints);
+      setSelectedHospital(hospital);
+      
+      // Center the map to show the route
+      if (mapRef.current) {
+        mapRef.current.fitToCoordinates(waypoints, {
+          edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+          animated: true,
+        });
+      }
+      
+      setLoading(false);
     }
   };
 
@@ -274,26 +402,24 @@ const EmergencyScreen = ({ navigation }) => {
       });
       formData.append('transcribe', 'true');
       
-      // Add coordinates if available
+      // Add coordinates if available - only once
       if (currentLocation) {
-        formData.append('coordinates', JSON.stringify({
+        const coordinates = {
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
           accuracy: currentLocation.coords.accuracy,
-        }));
+        };
+        formData.append('coordinates', JSON.stringify(coordinates));
+        
+        // Print coordinates for debugging
+        console.log('Coordinates:', JSON.stringify(coordinates, null, 2));
       }
       
-      // Add complete user profile
+      // Add complete user profile - only once
       formData.append('current_user', JSON.stringify(profile));
-
-      // For debugging - Print the data being sent
-      console.log('Sending emergency data:', JSON.stringify({
-        coordinates: currentLocation ? {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        } : 'No location available',
-        user: profile,
-      }));
+      
+      // Print user profile for debugging
+      console.log('User Profile:', JSON.stringify(profile, null, 2));
 
       const response = await fetch(`${SERVER_URL}/api/help`, {
         method: 'POST',
@@ -307,6 +433,11 @@ const EmergencyScreen = ({ navigation }) => {
       const data = await response.json();
 
       if (response.ok) {
+        // Print transcribed audio if available
+        if (data.transcription) {
+          console.log('Transcribed Audio:', data.transcription);
+        }
+        
         // Show toast with contacts notified
         const contactsNames = profile.emergency_contacts.map(c => c.name).join(', ');
         displayToast('Emergency Alert Sent', `Notified: ${contactsNames}`);
@@ -407,6 +538,11 @@ const EmergencyScreen = ({ navigation }) => {
                 latitudeDelta: 0.05,
                 longitudeDelta: 0.05,
               } : null}
+              showsUserLocation={true}
+              showsMyLocationButton={true}
+              showsCompass={true}
+              showsTraffic={true}
+              loadingEnabled={true}
             >
               {/* User's current location */}
               {location && (
@@ -430,8 +566,9 @@ const EmergencyScreen = ({ navigation }) => {
                   key={hospital.id}
                   coordinate={hospital.coordinate}
                   title={hospital.name}
-                  description={`Distance: ${hospital.distance}`}
+                  description={hospital.fullName || `Distance: ${hospital.distance}`}
                   pinColor={selectedHospital?.id === hospital.id ? 'green' : 'red'}
+                  onPress={() => selectHospital(hospital)}
                 >
                   <View style={[
                     styles.hospitalMarker,
@@ -448,44 +585,104 @@ const EmergencyScreen = ({ navigation }) => {
                   coordinates={route}
                   strokeWidth={4}
                   strokeColor="#ff5e62"
+                  strokeColors={[
+                    '#ff9966',
+                    '#ff5e62',
+                  ]}
+                  lineDashPattern={[0]}
                 />
               )}
             </MapView>
             
+            {/* Hospital details card */}
+            {selectedHospital && (
+              <View style={styles.hospitalDetailCard}>
+                <View style={styles.hospitalHeaderRow}>
+                  <FontAwesome name="hospital-o" size={24} color="#ff5e62" />
+                  <Text style={styles.hospitalDetailName}>{selectedHospital.name}</Text>
+                  <Text style={styles.hospitalDetailDistance}>{selectedHospital.distance}</Text>
+                </View>
+                
+                {selectedHospital.fullName && (
+                  <Text style={styles.hospitalAddress} numberOfLines={2}>
+                    {selectedHospital.fullName}
+                  </Text>
+                )}
+                
+                <View style={styles.actionButtonsRow}>
+                  <TouchableOpacity style={styles.actionButton}>
+                    <FontAwesome name="phone" size={18} color="#fff" />
+                    <Text style={styles.actionButtonText}>Call</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity style={styles.actionButton}>
+                    <FontAwesome name="share-alt" size={18} color="#fff" />
+                    <Text style={styles.actionButtonText}>Share</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.actionButton}
+                    onPress={() => {
+                      if (selectedHospital) {
+                        getRouteToHospital(selectedHospital);
+                      }
+                    }}
+                  >
+                    <FontAwesome name="refresh" size={18} color="#fff" />
+                    <Text style={styles.actionButtonText}>Reroute</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            
             <View style={styles.hospitalsList}>
-              <Text style={styles.hospitalsListTitle}>Select a Medical Facility:</Text>
+              <Text style={styles.hospitalsListTitle}>Nearby Medical Facilities:</Text>
               
-              {nearbyHospitals.map(hospital => (
-                <TouchableOpacity
-                  key={hospital.id}
-                  style={[
-                    styles.hospitalItem,
-                    selectedHospital?.id === hospital.id && styles.selectedHospitalItem
-                  ]}
-                  onPress={() => selectHospital(hospital)}
-                >
-                  <FontAwesome
-                    name="hospital-o"
-                    size={16}
-                    color={selectedHospital?.id === hospital.id ? '#fff' : '#ff5e62'}
-                    style={styles.hospitalIcon}
-                  />
-                  <View style={styles.hospitalDetails}>
-                    <Text style={[
-                      styles.hospitalName,
-                      selectedHospital?.id === hospital.id && styles.selectedHospitalText
-                    ]}>
-                      {hospital.name}
-                    </Text>
-                    <Text style={[
-                      styles.hospitalDistance,
-                      selectedHospital?.id === hospital.id && styles.selectedHospitalText
-                    ]}>
-                      {hospital.distance}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {loading ? (
+                <View style={styles.loadingHospitals}>
+                  <ActivityIndicator size="small" color="#ff5e62" />
+                  <Text style={styles.loadingHospitalsText}>Finding nearby hospitals...</Text>
+                </View>
+              ) : nearbyHospitals.length === 0 ? (
+                <Text style={styles.noHospitalsText}>No nearby hospitals found</Text>
+              ) : (
+                nearbyHospitals.map(hospital => (
+                  <TouchableOpacity
+                    key={hospital.id}
+                    style={[
+                      styles.hospitalItem,
+                      selectedHospital?.id === hospital.id && styles.selectedHospitalItem
+                    ]}
+                    onPress={() => selectHospital(hospital)}
+                  >
+                    <FontAwesome
+                      name="hospital-o"
+                      size={16}
+                      color={selectedHospital?.id === hospital.id ? '#fff' : '#ff5e62'}
+                      style={styles.hospitalIcon}
+                    />
+                    <View style={styles.hospitalDetails}>
+                      <Text style={[
+                        styles.hospitalName,
+                        selectedHospital?.id === hospital.id && styles.selectedHospitalText
+                      ]}>
+                        {hospital.name}
+                      </Text>
+                      <Text style={[
+                        styles.hospitalDistance,
+                        selectedHospital?.id === hospital.id && styles.selectedHospitalText
+                      ]}>
+                        {hospital.distance}
+                      </Text>
+                    </View>
+                    <FontAwesome
+                      name="chevron-right"
+                      size={14}
+                      color={selectedHospital?.id === hospital.id ? '#fff' : '#999'}
+                    />
+                  </TouchableOpacity>
+                ))
+              )}
               
               <TouchableOpacity
                 style={styles.backButton}
@@ -783,7 +980,7 @@ const styles = StyleSheet.create({
   },
   map: {
     width: '100%',
-    height: height * 0.4,
+    height: height * 0.45,
     borderRadius: 12,
     marginBottom: 10,
     overflow: 'hidden',
@@ -815,6 +1012,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    maxHeight: height * 0.3,
   },
   hospitalsListTitle: {
     fontSize: 16,
@@ -863,6 +1061,82 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  hospitalDetailCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    width: '100%',
+    marginVertical: 10,
+  },
+  hospitalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  hospitalDetailName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 10,
+    flex: 1,
+  },
+  hospitalDetailDistance: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 10,
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  hospitalAddress: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#ff5e62',
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginLeft: 8,
+  },
+  loadingHospitals: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  loadingHospitalsText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#666',
+  },
+  noHospitalsText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    padding: 20,
   },
 });
 
