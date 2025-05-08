@@ -205,19 +205,20 @@ const Home = () => {
     return `${formattedHour}:${minutes} ${ampm}`;
   };
 
-  // Check if medicine is due now (within 30 seconds)
+  // Check if medicine is due now (within 1 minute)
   const isDueNow = (timeString) => {
     const [hours, minutes] = timeString.split(':');
     const medicineTime = new Date();
     medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
     
     const now = new Date();
-    const timeDiff = Math.abs(medicineTime - now) / (1000); // difference in seconds
+    const timeDiff = (medicineTime - now) / (1000 * 60); // difference in minutes
     
-    return timeDiff <= 30;
+    // Return true if medicine time is within 1 minute
+    return Math.abs(timeDiff) <= 1;
   };
 
-  // Check if medicine is upcoming (within 15 minutes)
+  // Check if medicine is upcoming (under 15 minutes)
   const isUpcoming = (timeString) => {
     const [hours, minutes] = timeString.split(':');
     const medicineTime = new Date();
@@ -225,12 +226,11 @@ const Home = () => {
     
     const now = new Date();
     
-    // Medicine time should be in the future
-    if (medicineTime <= now) return false;
+    // Calculate time difference in minutes
+    const timeDiff = (medicineTime - now) / (1000 * 60);
     
-    const timeDiff = Math.abs(medicineTime - now) / (1000 * 60); // difference in minutes
-    
-    return timeDiff <= 15; // Within 15 minutes
+    // Return true if medicine time is less than 15 minutes away but more than 1 minute away
+    return timeDiff > 1 && timeDiff < 15;
   };
 
   // Navigate to add medicine screen
@@ -245,39 +245,48 @@ const Home = () => {
     navigation.navigate('Schedule', { schedule, firstMedicineTime });
   };
 
-  // Play alert sound
+  // Play alert sound for due medicine
   const playAlertSound = async () => {
     try {
-      // First try Haptics
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // Strong haptic feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       
       // Stop previous sound if exists
       if (sound.current) {
         await sound.current.unloadAsync().catch(() => {});
       }
       
-      // Create a simple sound using system preset
+      // Create urgent alert sound
       const { sound: newSound } = await Audio.Sound.createAsync(
-        require('expo-asset/play_button.ios.m4a'), // Use expo asset's built-in sound
+        require('../assets/sounds/alert.mp3'),
         { shouldPlay: true, isLooping: true, volume: 1.0 }
       );
       
       sound.current = newSound;
       
-      // Set a timeout to stop the sound after 30 seconds in case user doesn't respond
-      setTimeout(async () => {
-        if (sound.current) {
-          await sound.current.stopAsync().catch(() => {});
-        }
-      }, 30000);
-    } catch (error) {
-      console.log('Sound playback failed, falling back to haptic only');
-      // Fallback to repeated haptics if sound fails
+      // Repeat haptic feedback every 2 seconds
       const hapticInterval = setInterval(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       }, 2000);
       
-      // Store the interval ID in a ref so we can clear it later
+      // Store the interval ID
+      sound.current.hapticInterval = hapticInterval;
+      
+      // Stop sound after 30 seconds if not responded
+      setTimeout(async () => {
+        if (sound.current) {
+          clearInterval(sound.current.hapticInterval);
+          await sound.current.stopAsync().catch(() => {});
+          await sound.current.unloadAsync().catch(() => {});
+        }
+      }, 30000);
+    } catch (error) {
+      console.log('Sound playback failed, using haptics only');
+      // Fallback to repeated haptics
+      const hapticInterval = setInterval(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      }, 2000);
+      
       sound.current = { 
         hapticInterval,
         stopAsync: async () => clearInterval(hapticInterval),
@@ -286,51 +295,34 @@ const Home = () => {
     }
   };
 
-  // Play upcoming reminder sound (less intrusive)
+  // Play upcoming reminder sound (gentler)
   const playUpcomingSound = async () => {
     try {
-      // Use haptic feedback first (gentle)
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // Gentle haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       
       // Stop previous sound if exists
       if (sound.current) {
         await sound.current.unloadAsync().catch(() => {});
       }
       
-      // Use a simple sound notification
+      // Create gentle notification sound
       const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+        require('../assets/sounds/upcoming.mp3'),
         { shouldPlay: true, isLooping: false, volume: 0.7 }
       );
       
       sound.current = newSound;
       
-      // Automatically release audio after playing once
+      // Release audio after playing once
       newSound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) {
           newSound.unloadAsync().catch(() => {});
         }
       });
     } catch (error) {
-      console.log('Upcoming sound playback failed, falling back to haptic only');
-      // Just use haptics if sound fails
+      console.log('Upcoming sound playback failed, using haptic only');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-  };
-
-  // Stop alert sound
-  const stopAlertSound = async () => {
-    if (sound.current) {
-      try {
-        if (sound.current.hapticInterval) {
-          clearInterval(sound.current.hapticInterval);
-        } else {
-          await sound.current.stopAsync();
-        }
-        await sound.current.unloadAsync();
-      } catch (error) {
-        console.log('Error stopping sound:', error);
-      }
     }
   };
 
@@ -561,6 +553,22 @@ const Home = () => {
       return () => {};
     }, [])
   );
+
+  // Stop alert sound
+  const stopAlertSound = async () => {
+    if (sound.current) {
+      try {
+        if (sound.current.hapticInterval) {
+          clearInterval(sound.current.hapticInterval);
+        } else {
+          await sound.current.stopAsync();
+        }
+        await sound.current.unloadAsync();
+      } catch (error) {
+        console.log('Error stopping sound:', error);
+      }
+    }
+  };
 
   if (loading) {
     return (
@@ -949,75 +957,82 @@ const styles = StyleSheet.create({
   },
   reminderContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    backdropFilter: 'blur(5px)',
   },
   reminderContent: {
     backgroundColor: 'white',
-    borderRadius: 20,
+    borderRadius: 25,
     padding: 30,
-    width: width * 0.85,
+    width: width * 0.9,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 8,
   },
   reminderIconContainer: {
     backgroundColor: '#FFF5F0',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 130,
+    height: 130,
+    borderRadius: 65,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 25,
+    shadowColor: '#FF7F50',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
   },
   reminderTitle: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#333',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   reminderMedicineName: {
-    fontSize: 20,
+    fontSize: 24,
     color: '#FF7F50',
     fontWeight: 'bold',
     textAlign: 'center',
+    marginBottom: 8,
   },
   reminderDosage: {
-    fontSize: 18,
+    fontSize: 20,
     color: '#666',
-    marginTop: 5,
+    marginBottom: 8,
     textAlign: 'center',
   },
   reminderTime: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#888',
-    marginTop: 5,
-    marginBottom: 20,
+    marginBottom: 25,
     textAlign: 'center',
   },
   reminderActions: {
     flexDirection: 'row',
     width: '100%',
     justifyContent: 'space-around',
-    marginTop: 10,
+    marginTop: 15,
   },
   reminderButton: {
     flexDirection: 'row',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 25,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 4,
+    minWidth: width * 0.35,
   },
   reminderButtonTaken: {
     backgroundColor: '#4CD964',
@@ -1028,68 +1043,76 @@ const styles = StyleSheet.create({
   reminderButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 16,
-    marginLeft: 8,
+    fontSize: 18,
+    marginLeft: 10,
   },
   upcomingReminder: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 30,
     right: 20,
     left: 20,
   },
   upcomingReminderContent: {
     backgroundColor: 'white',
-    borderRadius: 15,
-    padding: 20,
-    flexDirection: 'row',
+    borderRadius: 20,
+    padding: 25,
+    flexDirection: 'column',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    flexWrap: 'wrap',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 7,
   },
   upcomingIconContainer: {
     backgroundColor: '#F0F8FF',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 15,
+    marginBottom: 15,
+    shadowColor: '#4682B4',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
   upcomingReminderTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-    width: '70%',
+    marginBottom: 10,
+    textAlign: 'center',
   },
   upcomingMedicineName: {
-    fontSize: 15,
+    fontSize: 17,
     color: '#4682B4',
     fontWeight: 'bold',
-    width: '70%',
-    marginTop: 5,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   upcomingTime: {
-    fontSize: 14,
-    color: '#888',
-    width: '70%',
-    marginTop: 3,
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 15,
+    textAlign: 'center',
   },
   dismissButton: {
-    backgroundColor: '#f2f2f2',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 15,
-    position: 'absolute',
-    right: 15,
-    bottom: 15,
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   dismissButtonText: {
     color: '#666',
     fontWeight: 'bold',
+    fontSize: 16,
   }
 });
 

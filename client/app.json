@@ -73,6 +73,10 @@
       "eas": {
         "projectId": "84e20670-0643-49e9-9f9b-f9954e017d82"
       }
-    }
+    },
+    "assets": [
+      "./public/sounds/alert.mp3",
+      "./public/sounds/upcoming.mp3"
+    ]
   }
 }
