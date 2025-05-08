@@ -1424,6 +1424,11 @@
   dependencies:
     invariant "^2.2.4"
 
+"@react-native-masked-view/masked-view@^0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@react-native-masked-view/masked-view/-/masked-view-0.3.2.tgz#7064533a573e3539ec912f59c1f457371bf49dd9"
+  integrity sha512-XwuQoW7/GEgWRMovOQtX3A4PrXhyaZm0lVUiY8qJDvdngjLms9Cpdck6SmGAUNqQwcj2EadHC1HwL0bEyoa/SQ==
+
 "@react-native-picker/picker@2.9.0":
   version "2.9.0"
   resolved "https://registry.yarnpkg.com/@react-native-picker/picker/-/picker-2.9.0.tgz#0a7053ca174ec697388cb79032fb4c1445554e07"
@@ -3908,6 +3913,11 @@ expo-av@~15.0.2:
   version "15.0.2"
   resolved "https://registry.yarnpkg.com/expo-av/-/expo-av-15.0.2.tgz#65bb08658a7fe3a67aa47da614abbfae9adb684e"
   integrity sha512-AHIHXdqLgK1dfHZF0JzX3YSVySGMrWn9QtPzaVjw54FAzvXfMt4sIoq4qRL/9XWCP9+ICcCs/u3EcvmxQjrfcA==
+
+expo-blur@^14.1.4:
+  version "14.1.4"
+  resolved "https://registry.yarnpkg.com/expo-blur/-/expo-blur-14.1.4.tgz#d246c0a224ce63321d022edfc0e6a8c5fa2cc865"
+  integrity sha512-55P9tK/RjJZEcu2tU7BqX3wmIOrGMOOkmHztJMMws+ZGHzvtjnPmT7dsQxhOU9vPj77oHnKetYHU2sik3iBcCw==
 
 expo-camera@~16.0.18:
   version "16.0.18"
