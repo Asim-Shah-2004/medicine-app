@@ -11,6 +11,7 @@ import {
   Animated,
   ToastAndroid,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather, FontAwesome } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -810,173 +811,179 @@ const EmergencyScreen = ({ navigation }) => {
 
       <View style={styles.content}>
         {showMap ? (
-          <View style={styles.mapContainer}>
-            <Text style={styles.mapTitle}>Nearest Medical Facilities</Text>
-            <Text style={styles.mapSubtitle}>Showing the 3 closest hospitals to your location</Text>
-            
-            <MapView
-              ref={mapRef}
-              style={styles.map}
-              initialRegion={location ? {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              } : null}
-              showsUserLocation={true}
-              showsMyLocationButton={true}
-              showsCompass={true}
-              showsTraffic={true}
-              loadingEnabled={true}
-            >
-              {/* User's current location */}
-              {location && (
-                <Marker
-                  coordinate={{
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude,
-                  }}
-                  title="Your Location"
-                  pinColor="blue"
-                >
-                  <View style={styles.userMarker}>
-                    <FontAwesome name="user" size={16} color="#fff" />
-                  </View>
-                </Marker>
-              )}
+          <ScrollView 
+            style={styles.mapScrollView}
+            contentContainerStyle={styles.mapScrollContent}
+            showsVerticalScrollIndicator={true}
+          >
+            <View style={styles.mapContainer}>
+              <Text style={styles.mapTitle}>Nearest Medical Facilities</Text>
+              <Text style={styles.mapSubtitle}>Showing the 3 closest hospitals to your location</Text>
               
-              {/* Nearby hospitals */}
-              {nearbyHospitals.map(hospital => (
-                <Marker
-                  key={hospital.id}
-                  coordinate={hospital.coordinate}
-                  title={hospital.name}
-                  description={hospital.fullName || `Distance: ${hospital.distance}`}
-                  pinColor={selectedHospital?.id === hospital.id ? 'green' : 'red'}
-                  onPress={() => selectHospital(hospital)}
-                >
-                  <View style={[
-                    styles.hospitalMarker,
-                    selectedHospital?.id === hospital.id && styles.selectedHospitalMarker
-                  ]}>
-                    <FontAwesome name="hospital-o" size={16} color="#fff" />
-                  </View>
-                </Marker>
-              ))}
-              
-              {/* Route to selected hospital */}
-              {route && (
-                <Polyline
-                  coordinates={route}
-                  strokeWidth={4}
-                  strokeColor="#ff5e62"
-                  strokeColors={[
-                    '#ff9966',
-                    '#ff5e62',
-                  ]}
-                  lineDashPattern={[0]}
-                />
-              )}
-            </MapView>
-            
-            {/* Hospital details card */}
-            {selectedHospital && (
-              <View style={styles.hospitalDetailCard}>
-                <View style={styles.hospitalHeaderRow}>
-                  <FontAwesome name="hospital-o" size={24} color="#ff5e62" />
-                  <Text style={styles.hospitalDetailName}>{selectedHospital.name}</Text>
-                  <Text style={styles.hospitalDetailDistance}>{selectedHospital.distance}</Text>
-                </View>
-                
-                {selectedHospital.fullName && (
-                  <Text style={styles.hospitalAddress} numberOfLines={2}>
-                    {selectedHospital.fullName}
-                  </Text>
+              <MapView
+                ref={mapRef}
+                style={styles.map}
+                initialRegion={location ? {
+                  latitude: location.coords.latitude,
+                  longitude: location.coords.longitude,
+                  latitudeDelta: 0.05,
+                  longitudeDelta: 0.05,
+                } : null}
+                showsUserLocation={true}
+                showsMyLocationButton={true}
+                showsCompass={true}
+                showsTraffic={true}
+                loadingEnabled={true}
+              >
+                {/* User's current location */}
+                {location && (
+                  <Marker
+                    coordinate={{
+                      latitude: location.coords.latitude,
+                      longitude: location.coords.longitude,
+                    }}
+                    title="Your Location"
+                    pinColor="blue"
+                  >
+                    <View style={styles.userMarker}>
+                      <FontAwesome name="user" size={16} color="#fff" />
+                    </View>
+                  </Marker>
                 )}
                 
-                <View style={styles.actionButtonsRow}>
-                  <TouchableOpacity style={styles.actionButton}>
-                    <FontAwesome name="phone" size={18} color="#fff" />
-                    <Text style={styles.actionButtonText}>Call</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.actionButton}>
-                    <FontAwesome name="share-alt" size={18} color="#fff" />
-                    <Text style={styles.actionButtonText}>Share</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.actionButton}
-                    onPress={() => {
-                      if (selectedHospital) {
-                        getRouteToHospital(selectedHospital);
-                      }
-                    }}
-                  >
-                    <FontAwesome name="refresh" size={18} color="#fff" />
-                    <Text style={styles.actionButtonText}>Reroute</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-            
-            <View style={styles.hospitalsList}>
-              <Text style={styles.hospitalsListTitle}>Nearest 3 Medical Facilities:</Text>
-              
-              {loading ? (
-                <View style={styles.loadingHospitals}>
-                  <ActivityIndicator size="small" color="#ff5e62" />
-                  <Text style={styles.loadingHospitalsText}>Finding nearest hospitals...</Text>
-                </View>
-              ) : nearbyHospitals.length === 0 ? (
-                <Text style={styles.noHospitalsText}>No nearby hospital found</Text>
-              ) : (
-                nearbyHospitals.map(hospital => (
-                  <TouchableOpacity
+                {/* Nearby hospitals */}
+                {nearbyHospitals.map(hospital => (
+                  <Marker
                     key={hospital.id}
-                    style={[
-                      styles.hospitalItem,
-                      selectedHospital?.id === hospital.id && styles.selectedHospitalItem
-                    ]}
+                    coordinate={hospital.coordinate}
+                    title={hospital.name}
+                    description={hospital.fullName || `Distance: ${hospital.distance}`}
+                    pinColor={selectedHospital?.id === hospital.id ? 'green' : 'red'}
                     onPress={() => selectHospital(hospital)}
                   >
-                    <FontAwesome
-                      name="hospital-o"
-                      size={16}
-                      color={selectedHospital?.id === hospital.id ? '#fff' : '#ff5e62'}
-                      style={styles.hospitalIcon}
-                    />
-                    <View style={styles.hospitalDetails}>
-                      <Text style={[
-                        styles.hospitalName,
-                        selectedHospital?.id === hospital.id && styles.selectedHospitalText
-                      ]}>
-                        {hospital.name}
-                      </Text>
-                      <Text style={[
-                        styles.hospitalDistance,
-                        selectedHospital?.id === hospital.id && styles.selectedHospitalText
-                      ]}>
-                        {hospital.distance}
-                      </Text>
+                    <View style={[
+                      styles.hospitalMarker,
+                      selectedHospital?.id === hospital.id && styles.selectedHospitalMarker
+                    ]}>
+                      <FontAwesome name="hospital-o" size={16} color="#fff" />
                     </View>
-                    <FontAwesome
-                      name="chevron-right"
-                      size={14}
-                      color={selectedHospital?.id === hospital.id ? '#fff' : '#999'}
-                    />
-                  </TouchableOpacity>
-                ))
+                  </Marker>
+                ))}
+                
+                {/* Route to selected hospital */}
+                {route && (
+                  <Polyline
+                    coordinates={route}
+                    strokeWidth={4}
+                    strokeColor="#ff5e62"
+                    strokeColors={[
+                      '#ff9966',
+                      '#ff5e62',
+                    ]}
+                    lineDashPattern={[0]}
+                  />
+                )}
+              </MapView>
+              
+              {/* Hospital details card */}
+              {selectedHospital && (
+                <View style={styles.hospitalDetailCard}>
+                  <View style={styles.hospitalHeaderRow}>
+                    <FontAwesome name="hospital-o" size={24} color="#ff5e62" />
+                    <Text style={styles.hospitalDetailName}>{selectedHospital.name}</Text>
+                    <Text style={styles.hospitalDetailDistance}>{selectedHospital.distance}</Text>
+                  </View>
+                  
+                  {selectedHospital.fullName && (
+                    <Text style={styles.hospitalAddress} numberOfLines={2}>
+                      {selectedHospital.fullName}
+                    </Text>
+                  )}
+                  
+                  <View style={styles.actionButtonsRow}>
+                    <TouchableOpacity style={styles.actionButton}>
+                      <FontAwesome name="phone" size={18} color="#fff" />
+                      <Text style={styles.actionButtonText}>Call</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity style={styles.actionButton}>
+                      <FontAwesome name="share-alt" size={18} color="#fff" />
+                      <Text style={styles.actionButtonText}>Share</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={styles.actionButton}
+                      onPress={() => {
+                        if (selectedHospital) {
+                          getRouteToHospital(selectedHospital);
+                        }
+                      }}
+                    >
+                      <FontAwesome name="refresh" size={18} color="#fff" />
+                      <Text style={styles.actionButtonText}>Reroute</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               )}
               
-              <TouchableOpacity
-                style={styles.backButton}
-                onPress={() => setShowMap(false)}
-              >
-                <Text style={styles.backButtonText}>Back to Emergency</Text>
-              </TouchableOpacity>
+              <View style={styles.hospitalsList}>
+                <Text style={styles.hospitalsListTitle}>Nearest 3 Medical Facilities:</Text>
+                
+                {loading ? (
+                  <View style={styles.loadingHospitals}>
+                    <ActivityIndicator size="small" color="#ff5e62" />
+                    <Text style={styles.loadingHospitalsText}>Finding nearest hospitals...</Text>
+                  </View>
+                ) : nearbyHospitals.length === 0 ? (
+                  <Text style={styles.noHospitalsText}>No nearby hospital found</Text>
+                ) : (
+                  nearbyHospitals.map(hospital => (
+                    <TouchableOpacity
+                      key={hospital.id}
+                      style={[
+                        styles.hospitalItem,
+                        selectedHospital?.id === hospital.id && styles.selectedHospitalItem
+                      ]}
+                      onPress={() => selectHospital(hospital)}
+                    >
+                      <FontAwesome
+                        name="hospital-o"
+                        size={16}
+                        color={selectedHospital?.id === hospital.id ? '#fff' : '#ff5e62'}
+                        style={styles.hospitalIcon}
+                      />
+                      <View style={styles.hospitalDetails}>
+                        <Text style={[
+                          styles.hospitalName,
+                          selectedHospital?.id === hospital.id && styles.selectedHospitalText
+                        ]}>
+                          {hospital.name}
+                        </Text>
+                        <Text style={[
+                          styles.hospitalDistance,
+                          selectedHospital?.id === hospital.id && styles.selectedHospitalText
+                        ]}>
+                          {hospital.distance}
+                        </Text>
+                      </View>
+                      <FontAwesome
+                        name="chevron-right"
+                        size={14}
+                        color={selectedHospital?.id === hospital.id ? '#fff' : '#999'}
+                      />
+                    </TouchableOpacity>
+                  ))
+                )}
+                
+                <TouchableOpacity
+                  style={styles.backButton}
+                  onPress={() => setShowMap(false)}
+                >
+                  <Text style={styles.backButtonText}>Back to Emergency</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         ) : hasContacts ? (
           <View style={styles.emergencyAvailable}>
             <View style={styles.micContainer}>
@@ -1047,30 +1054,32 @@ const EmergencyScreen = ({ navigation }) => {
             )}
           </View>
         ) : (
-          <View style={styles.emergencyUnavailable}>
-            <View style={styles.noContactsIcon}>
-              <Feather name="users" size={60} color="#ff5e62" />
-            </View>
-            <Text style={styles.noContactsTitle}>No Emergency Contacts</Text>
-            <Text style={styles.noContactsDescription}>
-              Please add emergency contacts from your profile to activate the emergency assistance feature
-            </Text>
-            
-            <TouchableOpacity
-              style={styles.addContactsButton}
-              onPress={() => navigation.navigate('Profile')}
-            >
-              <LinearGradient
-                colors={['#ff9966', '#ff5e62']}
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 0}}
-                style={styles.addContactsGradient}
+          <ScrollView style={styles.noContactScrollView} contentContainerStyle={styles.noContactContent}>
+            <View style={styles.emergencyUnavailable}>
+              <View style={styles.noContactsIcon}>
+                <Feather name="users" size={60} color="#ff5e62" />
+              </View>
+              <Text style={styles.noContactsTitle}>No Emergency Contacts</Text>
+              <Text style={styles.noContactsDescription}>
+                Please add emergency contacts from your profile to activate the emergency assistance feature
+              </Text>
+              
+              <TouchableOpacity
+                style={styles.addContactsButton}
+                onPress={() => navigation.navigate('Profile')}
               >
-                <Feather name="plus" size={20} color="#fff" style={styles.addIcon} />
-                <Text style={styles.addContactsText}>Add Emergency Contacts</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+                <LinearGradient
+                  colors={['#ff9966', '#ff5e62']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={styles.addContactsGradient}
+                >
+                  <Feather name="plus" size={20} color="#fff" style={styles.addIcon} />
+                  <Text style={styles.addContactsText}>Add Emergency Contacts</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         )}
       </View>
     </SafeAreaView>
@@ -1104,14 +1113,14 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    width: '100%',
+    paddingHorizontal: 15,
   },
   emergencyAvailable: {
     width: '100%',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 20,
   },
   micContainer: {
     marginBottom: 30,
@@ -1173,6 +1182,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   noContactsIcon: {
     width: 120,
@@ -1252,10 +1262,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   // Map styles
-  mapContainer: {
+  mapScrollView: {
     flex: 1,
     width: '100%',
+  },
+  mapScrollContent: {
+    paddingBottom: 30,
+  },
+  mapContainer: {
+    width: '100%',
     alignItems: 'center',
+    paddingBottom: 10,
   },
   mapTitle: {
     fontSize: 18,
@@ -1272,7 +1289,7 @@ const styles = StyleSheet.create({
   },
   map: {
     width: '100%',
-    height: height * 0.45,
+    height: height * 0.35,
     borderRadius: 12,
     marginBottom: 10,
     overflow: 'hidden',
@@ -1304,7 +1321,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    maxHeight: height * 0.3,
+    marginBottom: 20,
   },
   hospitalsListTitle: {
     fontSize: 16,
@@ -1333,6 +1350,7 @@ const styles = StyleSheet.create({
   },
   hospitalDetails: {
     flex: 1,
+    paddingRight: 5,
   },
   hospitalName: {
     fontWeight: 'bold',
@@ -1353,6 +1371,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     marginTop: 10,
+    marginBottom: 10,
   },
   backButtonText: {
     color: '#fff',
@@ -1434,6 +1453,16 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     padding: 20,
+  },
+  noContactScrollView: {
+    flex: 1,
+    width: '100%',
+  },
+  noContactContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 30,
   },
 });
 
