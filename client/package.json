@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "start": "expo start --tunnel",
+    "start": "expo start",
     "prebuild": "npx expo prebuild --clean",
     "build": "eas build -p android --profile development --local",
     "lint": "eslint \"{App,components,constants,navigation,screens,utils,providers,i18n}/**/*.{js,jsx,ts,tsx}\" && prettier -c \"{App,components,constants,navigation,screens,utils,providers,i18n}/**/*.{js,jsx,ts,tsx,json}\"",

@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   Modal,
   Animated,
-  Dimensions
+  Dimensions,
+  Vibration
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -205,32 +206,101 @@ const Home = () => {
     return `${formattedHour}:${minutes} ${ampm}`;
   };
 
+  // Play alert sound for due medicine
+  const playAlertSound = async () => {
+    try {
+      // Use strong haptic feedback
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        require('../assets/alert.mp3'),
+        { shouldPlay: true, isLooping: true }
+      );
+      
+      sound.current = newSound;
+      
+      // Vibrate device every 2 seconds
+      const vibrateInterval = setInterval(() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      }, 2000);
+      
+      sound.current.vibrateInterval = vibrateInterval;
+      
+      // Auto-stop after 30 seconds
+      setTimeout(() => {
+        if (sound.current) {
+          clearInterval(vibrateInterval);
+          sound.current.stopAsync();
+          sound.current.unloadAsync();
+        }
+      }, 30000);
+    } catch (error) {
+      console.log('Sound playback failed, using vibration only');
+      Vibration.vibrate([500, 1000, 500, 1000], true);
+    }
+  };
+
+  // Play upcoming reminder sound
+  const playUpcomingSound = async () => {
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Vibration.vibrate(500);
+    } catch (error) {
+      console.log('Haptic feedback failed');
+    }
+  };
+
+  // Stop any playing sounds and vibrations
+  const stopAlertSound = async () => {
+    try {
+      Vibration.cancel();
+      if (sound.current) {
+        if (sound.current.vibrateInterval) {
+          clearInterval(sound.current.vibrateInterval);
+        }
+        await sound.current.stopAsync();
+        await sound.current.unloadAsync();
+        sound.current = null;
+      }
+    } catch (error) {
+      console.log('Error stopping sound:', error);
+    }
+  };
+
   // Check if medicine is due now (within 1 minute)
   const isDueNow = (timeString) => {
     const [hours, minutes] = timeString.split(':');
+    const now = new Date();
     const medicineTime = new Date();
     medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
     
-    const now = new Date();
-    const timeDiff = (medicineTime - now) / (1000 * 60); // difference in minutes
+    // Get current time in minutes since midnight
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    // Get medicine time in minutes since midnight
+    const medicineMinutes = parseInt(hours) * 60 + parseInt(minutes);
     
-    // Return true if medicine time is within 1 minute
-    return Math.abs(timeDiff) <= 1;
+    // Check if within 1 minute
+    const diffInMinutes = Math.abs(medicineMinutes - currentMinutes);
+    return diffInMinutes <= 1;
   };
 
-  // Check if medicine is upcoming (under 15 minutes)
+  // Check if medicine is upcoming
   const isUpcoming = (timeString) => {
     const [hours, minutes] = timeString.split(':');
+    const now = new Date();
     const medicineTime = new Date();
     medicineTime.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
     
-    const now = new Date();
+    // Get current time in minutes since midnight
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    // Get medicine time in minutes since midnight
+    const medicineMinutes = parseInt(hours) * 60 + parseInt(minutes);
     
-    // Calculate time difference in minutes
-    const timeDiff = (medicineTime - now) / (1000 * 60);
+    // Calculate difference in minutes
+    const diffInMinutes = medicineMinutes - currentMinutes;
     
-    // Return true if medicine time is less than 15 minutes away but more than 1 minute away
-    return timeDiff > 1 && timeDiff < 15;
+    // Return true if medicine is between 1 and 15 minutes away and in the future
+    return diffInMinutes > 1 && diffInMinutes <= 15;
   };
 
   // Navigate to add medicine screen
@@ -243,164 +313,6 @@ const Home = () => {
     // Pass the first medicine time to schedule for proper week start
     const firstMedicineTime = todayMedicines.length > 0 ? todayMedicines[0].time : null;
     navigation.navigate('Schedule', { schedule, firstMedicineTime });
-  };
-
-  // Play alert sound for due medicine
-  const playAlertSound = async () => {
-    try {
-      // Strong haptic feedback
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      
-      // Stop previous sound if exists
-      if (sound.current) {
-        await sound.current.unloadAsync().catch(() => {});
-      }
-      
-      // Create urgent alert sound
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/sounds/alert.mp3'),
-        { shouldPlay: true, isLooping: true, volume: 1.0 }
-      );
-      
-      sound.current = newSound;
-      
-      // Repeat haptic feedback every 2 seconds
-      const hapticInterval = setInterval(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 2000);
-      
-      // Store the interval ID
-      sound.current.hapticInterval = hapticInterval;
-      
-      // Stop sound after 30 seconds if not responded
-      setTimeout(async () => {
-        if (sound.current) {
-          clearInterval(sound.current.hapticInterval);
-          await sound.current.stopAsync().catch(() => {});
-          await sound.current.unloadAsync().catch(() => {});
-        }
-      }, 30000);
-    } catch (error) {
-      console.log('Sound playback failed, using haptics only');
-      // Fallback to repeated haptics
-      const hapticInterval = setInterval(() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      }, 2000);
-      
-      sound.current = { 
-        hapticInterval,
-        stopAsync: async () => clearInterval(hapticInterval),
-        unloadAsync: async () => clearInterval(hapticInterval)
-      };
-    }
-  };
-
-  // Play upcoming reminder sound (gentler)
-  const playUpcomingSound = async () => {
-    try {
-      // Gentle haptic feedback
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
-      // Stop previous sound if exists
-      if (sound.current) {
-        await sound.current.unloadAsync().catch(() => {});
-      }
-      
-      // Create gentle notification sound
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/sounds/upcoming.mp3'),
-        { shouldPlay: true, isLooping: false, volume: 0.7 }
-      );
-      
-      sound.current = newSound;
-      
-      // Release audio after playing once
-      newSound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) {
-          newSound.unloadAsync().catch(() => {});
-        }
-      });
-    } catch (error) {
-      console.log('Upcoming sound playback failed, using haptic only');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-  };
-
-  // Handle medicine reminder response
-  const handleReminderResponse = async (taken) => {
-    if (currentReminder) {
-      // Add to dismissed reminders list to prevent it from showing again
-      setDismissedReminders(prev => [...prev, currentReminder._id]);
-      
-      // Animate out
-      Animated.timing(reminderOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(async () => {
-        // Stop sound
-        await stopAlertSound();
-        
-        // Hide modal
-        setReminderVisible(false);
-        
-        // Update medicine status if taken
-        if (taken) {
-          await updateMedicineStatus(currentReminder._id, true);
-        }
-        
-        // Remove from active reminders
-        setActiveReminders(prev => prev.filter(id => id !== currentReminder._id));
-        
-        // Check if there are more reminders waiting
-        const nextReminders = todayMedicines.filter(med => 
-          isDueNow(med.time) && 
-          !med.last_status && 
-          !activeReminders.includes(med._id) &&
-          !dismissedReminders.includes(med._id) &&
-          med._id !== currentReminder._id
-        );
-        
-        if (nextReminders.length > 0) {
-          // Show next reminder after a short delay
-          setTimeout(() => {
-            showReminderForMedicine(nextReminders[0]);
-          }, 500);
-        }
-        
-        // Clear current reminder
-        setCurrentReminder(null);
-      });
-    }
-  };
-
-  // Handle upcoming reminder dismissal
-  const dismissUpcomingReminder = () => {
-    if (upcomingReminder) {
-      // Add to dismissed reminders list to prevent it from showing again
-      setDismissedReminders(prev => [...prev, upcomingReminder._id]);
-    }
-    
-    // Animate out
-    Animated.timing(upcomingReminderOpacity, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(async () => {
-      // Stop sound
-      await stopAlertSound();
-      
-      // Hide modal
-      setUpcomingReminderVisible(false);
-      
-      // Remove from active reminders if there is an upcomingReminder
-      if (upcomingReminder) {
-        setActiveReminders(prev => prev.filter(id => id !== upcomingReminder._id));
-      }
-      
-      // Clear upcoming reminder
-      setUpcomingReminder(null);
-    });
   };
 
   // Show reminder for specific medicine
@@ -430,78 +342,171 @@ const Home = () => {
     playAlertSound();
   };
 
+  // Handle upcoming reminder dismissal
+  const dismissUpcomingReminder = () => {
+    if (!upcomingReminder) return;
+
+    // Add to dismissed reminders with type
+    setDismissedReminders(prev => [...prev, `${upcomingReminder._id}_upcoming`]);
+    
+    // Animate out
+    Animated.timing(upcomingReminderOpacity, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(async () => {
+      await stopAlertSound();
+      setUpcomingReminderVisible(false);
+      setActiveReminders(prev => prev.filter(id => id !== upcomingReminder._id));
+      setUpcomingReminder(null);
+    });
+  };
+
   // Show upcoming reminder for medicine
   const showUpcomingReminderForMedicine = (medicine) => {
-    // Check if this medicine is already dismissed
-    if (dismissedReminders.includes(medicine._id)) {
+    console.log('Showing upcoming reminder for:', medicine.name);
+    
+    // Double check if we should show this reminder
+    if (dismissedReminders.includes(medicine._id) || 
+        activeReminders.includes(medicine._id) || 
+        medicine.last_status) {
       return;
     }
-    
+
     // Set upcoming reminder
     setUpcomingReminder(medicine);
-    
-    // Add to active reminders
-    setActiveReminders(prev => [...prev, medicine._id]);
-    
-    // Show modal
     setUpcomingReminderVisible(true);
+    setActiveReminders(prev => [...prev, medicine._id]);
+
+    // Play sound and animate
+    playUpcomingSound();
     
-    // Animate in
     Animated.timing(upcomingReminderOpacity, {
       toValue: 1,
       duration: 500,
       useNativeDriver: true,
     }).start();
-    
-    // Play upcoming alert sound
-    playUpcomingSound();
   };
 
-  // Check for medicines that are due now or upcoming
+  // Handle medicine reminder response
+  const handleReminderResponse = async (taken) => {
+    if (currentReminder) {
+      // Add to dismissed reminders list with type to prevent it from showing again
+      setDismissedReminders(prev => [...prev, `${currentReminder._id}_due`]);
+      
+      // Animate out
+      Animated.timing(reminderOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(async () => {
+        // Stop sound
+        await stopAlertSound();
+        
+        // Hide modal
+        setReminderVisible(false);
+        
+        // Update medicine status if taken
+        if (taken) {
+          await updateMedicineStatus(currentReminder._id, true);
+        }
+        
+        // Remove from active reminders
+        setActiveReminders(prev => prev.filter(id => id !== currentReminder._id));
+        
+        // Clear current reminder
+        setCurrentReminder(null);
+      });
+    }
+  };
+
+  // Check medicines and show reminders
   const checkMedicines = useCallback(() => {
-    // Skip if a reminder is already showing
-    if (reminderVisible) return;
-    
-    // First, check for medicines that are due RIGHT NOW (within 30 seconds)
-    const dueMedicines = todayMedicines.filter(medicine => 
-      isDueNow(medicine.time) && 
-      !medicine.last_status && 
-      !activeReminders.includes(medicine._id) &&
-      !dismissedReminders.includes(medicine._id)
-    );
-    
-    if (dueMedicines.length > 0) {
-      showReminderForMedicine(dueMedicines[0]);
+    if (reminderVisible || upcomingReminderVisible) {
+      console.log('Reminder already visible, skipping check');
       return;
     }
-    
-    // If no medicines are due right now, check for upcoming medicines (within 15 mins)
-    // Only show upcoming reminder if there's no active upcoming reminder
-    if (!upcomingReminderVisible) {
-      const upcomingMedicines = todayMedicines.filter(medicine => 
-        isUpcoming(medicine.time) && 
-        !medicine.last_status && 
-        !activeReminders.includes(medicine._id) &&
-        !dismissedReminders.includes(medicine._id)
-      );
-      
-      if (upcomingMedicines.length > 0) {
-        showUpcomingReminderForMedicine(upcomingMedicines[0]);
-      }
-    }
-  }, [todayMedicines, reminderVisible, upcomingReminderVisible, activeReminders, dismissedReminders]);
 
-  // Reset dismissed reminders at midnight
-  const resetDismissedRemindersAtMidnight = useCallback(() => {
     const now = new Date();
-    if (now.getHours() === 0 && now.getMinutes() === 0) {
-      setDismissedReminders([]);
+    console.log('Checking medicines...');
+    console.log('Current time:', now.toLocaleTimeString());
+
+    // Get today's date in YYYY-MM-DD format
+    const today = now.toISOString().split('T')[0];
+
+    todayMedicines.forEach((medicine) => {
+      // Skip if medicine was already taken today or reminder was dismissed
+      const takenToday = medicine.history?.some(
+        (record) => record.date === today && record.completed
+      );
+
+      if (takenToday || 
+          medicine.last_status || 
+          dismissedReminders.includes(medicine._id)) {
+        return;
+      }
+
+      console.log(`Checking medicine: ${medicine.name} scheduled for: ${medicine.time}`);
+
+      // Check if it's time to show a reminder
+      if (isDueNow(medicine.time) && !dismissedReminders.includes(`${medicine._id}_due`)) {
+        console.log(`Medicine is due now: ${medicine.name}`);
+        showReminderForMedicine(medicine);
+      } else if (isUpcoming(medicine.time) && !dismissedReminders.includes(`${medicine._id}_upcoming`)) {
+        console.log(`Medicine is upcoming: ${medicine.name}`);
+        showUpcomingReminderForMedicine(medicine);
+      }
+    });
+  }, [todayMedicines, reminderVisible, upcomingReminderVisible, dismissedReminders]);
+
+  // Setup polling intervals
+  useEffect(() => {
+    // Check every 5 seconds instead of 30
+    const checkInterval = setInterval(() => {
+      checkMedicines();
+    }, 5000);
+
+    // Initial check
+    checkMedicines();
+
+    return () => {
+      clearInterval(checkInterval);
+      stopAlertSound();
+    };
+  }, [checkMedicines]);
+
+  // Check whenever medicines list changes
+  useEffect(() => {
+    if (todayMedicines.length > 0) {
+      console.log('Medicines list changed, checking medicines...'); // Debug log
+      checkMedicines();
     }
+  }, [todayMedicines]);
+
+  // Reset at midnight
+  useEffect(() => {
+    const midnightReset = setInterval(() => {
+      const now = new Date();
+      if (now.getHours() === 0 && now.getMinutes() === 0) {
+        setDismissedReminders([]); // Clear all dismissed reminders at midnight
+        setActiveReminders([]);
+        fetchData();
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(midnightReset);
   }, []);
 
-  // Setup polling and check for medicine alerts
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+      return () => {};
+    }, [])
+  );
+
+  // Configure audio session
   useEffect(() => {
-    // Configure audio session for playback
     const setupAudio = async () => {
       try {
         await Audio.setAudioModeAsync({
@@ -514,61 +519,8 @@ const Home = () => {
       }
     };
     
-    const initialize = async () => {
-      await setupAudio();
-      const data = await fetchData();
-      
-      // Set up polling interval (every 5 seconds for more accurate time checks)
-      const intervalId = setInterval(() => {
-        setCurrentTime(new Date());
-        checkMedicines();
-        resetDismissedRemindersAtMidnight();
-      }, 5000);
-      
-      return () => {
-        clearInterval(intervalId);
-        // Ensure sound is stopped when component unmounts
-        if (sound.current) {
-          if (sound.current.hapticInterval) {
-            clearInterval(sound.current.hapticInterval);
-          } else {
-            sound.current.unloadAsync().catch(() => {});
-          }
-        }
-      };
-    };
-    
-    initialize();
+    setupAudio();
   }, []);
-
-  // Check for due medicines whenever todayMedicines changes
-  useEffect(() => {
-    checkMedicines();
-  }, [todayMedicines, checkMedicines]);
-
-  // Refresh data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchData();
-      return () => {};
-    }, [])
-  );
-
-  // Stop alert sound
-  const stopAlertSound = async () => {
-    if (sound.current) {
-      try {
-        if (sound.current.hapticInterval) {
-          clearInterval(sound.current.hapticInterval);
-        } else {
-          await sound.current.stopAsync();
-        }
-        await sound.current.unloadAsync();
-      } catch (error) {
-        console.log('Error stopping sound:', error);
-      }
-    }
-  };
 
   if (loading) {
     return (
@@ -629,7 +581,15 @@ const Home = () => {
                   <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
                   <Text style={styles.medicineTime}>{formatTime(medicine.time)}</Text>
                   {isUpcoming(medicine.time) && !medicine.last_status && (
-                    <Text style={styles.upcomingText}>Coming up soon</Text>
+                    <Text style={styles.upcomingText}>Coming up in {
+                      Math.round(
+                        (new Date(new Date().setHours(...medicine.time.split(':'), 0, 0)) - new Date()) / 
+                        (1000 * 60)
+                      )} minutes
+                    </Text>
+                  )}
+                  {isDueNow(medicine.time) && !medicine.last_status && (
+                    <Text style={styles.dueNowText}>Due now!</Text>
                   )}
                   {medicine.last_status && (
                     <Text style={styles.takenText}>Already taken</Text>
@@ -716,11 +676,11 @@ const Home = () => {
         transparent={true}
         visible={upcomingReminderVisible}
         animationType="none"
-        onRequestClose={() => dismissUpcomingReminder()}
+        onRequestClose={dismissUpcomingReminder}
       >
         <Animated.View 
           style={[
-            styles.upcomingReminder,
+            styles.upcomingReminderContainer,
             { opacity: upcomingReminderOpacity }
           ]}
         >
@@ -732,14 +692,17 @@ const Home = () => {
             {upcomingReminder && (
               <>
                 <Text style={styles.upcomingMedicineName}>{upcomingReminder.name}</Text>
-                <Text style={styles.upcomingTime}>{formatTime(upcomingReminder.time)}</Text>
+                <Text style={styles.upcomingDosage}>{upcomingReminder.dosage}</Text>
+                <Text style={styles.upcomingTime}>
+                  Scheduled for {formatTime(upcomingReminder.time)}
+                </Text>
               </>
             )}
             <TouchableOpacity 
               style={styles.dismissButton}
               onPress={dismissUpcomingReminder}
             >
-              <Text style={styles.dismissButtonText}>Dismiss</Text>
+              <Text style={styles.dismissButtonText}>Got it</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -1046,17 +1009,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginLeft: 10,
   },
-  upcomingReminder: {
-    position: 'absolute',
-    bottom: 30,
-    right: 20,
-    left: 20,
+  upcomingReminderContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backdropFilter: 'blur(5px)',
   },
   upcomingReminderContent: {
     backgroundColor: 'white',
     borderRadius: 20,
     padding: 25,
-    flexDirection: 'column',
+    width: width * 0.85,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1066,12 +1030,12 @@ const styles = StyleSheet.create({
   },
   upcomingIconContainer: {
     backgroundColor: '#F0F8FF',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 20,
     shadowColor: '#4682B4',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -1079,41 +1043,53 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   upcomingReminderTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 10,
+    marginBottom: 15,
     textAlign: 'center',
   },
   upcomingMedicineName: {
-    fontSize: 17,
+    fontSize: 20,
     color: '#4682B4',
     fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  upcomingDosage: {
+    fontSize: 18,
+    color: '#666',
     marginBottom: 8,
     textAlign: 'center',
   },
   upcomingTime: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 15,
+    marginBottom: 20,
     textAlign: 'center',
   },
   dismissButton: {
-    backgroundColor: '#f5f5f5',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
+    backgroundColor: '#4682B4',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 2,
   },
   dismissButtonText: {
-    color: '#666',
+    color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
-  }
+  },
+  dueNowText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
 });
 
 export default Home;
