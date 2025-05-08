@@ -140,7 +140,10 @@ const EmergencyScreen = ({ navigation }) => {
         hospitals = [createSimulatedHospital(coords)];
       }
       
-      console.log(`Final result: Found ${hospitals.length} medical facilities`);
+      // Ensure we only show the three nearest hospitals
+      hospitals = hospitals.slice(0, 3);
+      
+      console.log(`Final result: Found ${hospitals.length} medical facilities (showing max 3)`);
       setNearbyHospitals(hospitals);
       
       // Automatically select the nearest hospital
@@ -350,7 +353,9 @@ const EmergencyScreen = ({ navigation }) => {
         
         // Sort by distance
         hospitals.sort((a, b) => a.distanceValue - b.distanceValue);
-        return hospitals;
+        
+        // Return only the three nearest hospitals
+        return hospitals.slice(0, 3);
       }
       
       return [];
@@ -406,7 +411,9 @@ const EmergencyScreen = ({ navigation }) => {
       
       // Sort by distance
       hospitals.sort((a, b) => a.distanceValue - b.distanceValue);
-      return hospitals;
+      
+      // Return only the three nearest hospitals
+      return hospitals.slice(0, 3);
     } catch (error) {
       console.error('Error processing results:', error);
       return [];
@@ -452,7 +459,8 @@ const EmergencyScreen = ({ navigation }) => {
     hospitals.sort((a, b) => a.distanceValue - b.distanceValue);
     
     // Only return if there's a hospital within reasonable distance (50km)
-    const nearbyHospitals = hospitals.filter(hospital => hospital.distanceValue <= 50);
+    // and limit to 3
+    const nearbyHospitals = hospitals.filter(hospital => hospital.distanceValue <= 50).slice(0, 3);
     return nearbyHospitals;
   };
   
@@ -803,7 +811,8 @@ const EmergencyScreen = ({ navigation }) => {
       <View style={styles.content}>
         {showMap ? (
           <View style={styles.mapContainer}>
-            <Text style={styles.mapTitle}>Nearest Medical Facility</Text>
+            <Text style={styles.mapTitle}>Nearest Medical Facilities</Text>
+            <Text style={styles.mapSubtitle}>Showing the 3 closest hospitals to your location</Text>
             
             <MapView
               ref={mapRef}
@@ -912,12 +921,12 @@ const EmergencyScreen = ({ navigation }) => {
             )}
             
             <View style={styles.hospitalsList}>
-              <Text style={styles.hospitalsListTitle}>Nearest Medical Facility:</Text>
+              <Text style={styles.hospitalsListTitle}>Nearest 3 Medical Facilities:</Text>
               
               {loading ? (
                 <View style={styles.loadingHospitals}>
                   <ActivityIndicator size="small" color="#ff5e62" />
-                  <Text style={styles.loadingHospitalsText}>Finding nearest hospital...</Text>
+                  <Text style={styles.loadingHospitalsText}>Finding nearest hospitals...</Text>
                 </View>
               ) : nearbyHospitals.length === 0 ? (
                 <Text style={styles.noHospitalsText}>No nearby hospital found</Text>
@@ -1252,7 +1261,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 5,
+  },
+  mapSubtitle: {
+    fontSize: 14,
+    color: '#666',
     marginBottom: 10,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   map: {
     width: '100%',
@@ -1295,6 +1311,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 8,
   },
   hospitalItem: {
     flexDirection: 'row',
@@ -1303,6 +1322,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
     backgroundColor: '#f8f9fa',
+    borderLeftWidth: 3,
+    borderLeftColor: '#ff5e62',
   },
   selectedHospitalItem: {
     backgroundColor: '#ff5e62',

@@ -211,16 +211,22 @@ const Home = () => {
     try {
       if (sound.current) {
         await sound.current.unloadAsync();
+        sound.current = null;
       }
+
+      // Start vibration immediately as a backup
+      Vibration.vibrate([500, 1000, 500, 1000], true);
+      
+      // Create a local Audio Sound object
       const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/sounds/reminder.mp3'),
+        { uri: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg' },
         { shouldPlay: true, isLooping: true }
       );
+      
       sound.current = newSound;
     } catch (error) {
       console.error('Error playing alert sound:', error);
-      // Fallback to vibration
-      Vibration.vibrate([500, 1000, 500, 1000], true);
+      // Fallback to vibration already started
     }
   };
 
@@ -228,13 +234,16 @@ const Home = () => {
     try {
       if (sound.current) {
         await sound.current.unloadAsync();
+        sound.current = null;
       }
+      
+      // Create a local Audio Sound object
       const { sound: newSound } = await Audio.Sound.createAsync(
-        require('../assets/sounds/notification.mp3'),
+        { uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' },
         { shouldPlay: true }
       );
+      
       sound.current = newSound;
-      await newSound.playAsync();
     } catch (error) {
       console.error('Error playing upcoming sound:', error);
       // Fallback to vibration
@@ -244,6 +253,9 @@ const Home = () => {
 
   const stopAlertSound = async () => {
     try {
+      // Stop vibration first (important for the haptic feedback issue)
+      Vibration.cancel();
+      
       if (sound.current) {
         await sound.current.stopAsync();
         await sound.current.unloadAsync();
@@ -251,6 +263,8 @@ const Home = () => {
       }
     } catch (error) {
       console.error('Error stopping alert sound:', error);
+      // Make sure vibration is stopped even if there's an error
+      Vibration.cancel();
     }
   };
 
@@ -260,6 +274,8 @@ const Home = () => {
       if (sound.current) {
         sound.current.unloadAsync();
       }
+      // Make sure vibration is stopped on unmount
+      Vibration.cancel();
     };
   }, []);
 
@@ -324,6 +340,13 @@ const Home = () => {
     // Add to active reminders
     setActiveReminders(prev => [...prev, medicine._id]);
     
+    // Provide haptic feedback
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } catch (error) {
+      console.error('Error with haptic feedback:', error);
+    }
+    
     // Show modal
     setReminderVisible(true);
     
@@ -342,18 +365,35 @@ const Home = () => {
   const dismissUpcomingReminder = () => {
     if (!upcomingReminder) return;
 
+    // Store reminder for later use
+    const reminderToDismiss = {...upcomingReminder};
+
     // Add to dismissed reminders with type
-    setDismissedReminders(prev => [...prev, `${upcomingReminder._id}_upcoming`]);
+    setDismissedReminders(prev => [...prev, `${reminderToDismiss._id}_upcoming`]);
+    
+    // Cancel vibration first - do this before any async operations
+    Vibration.cancel();
+    
+    // Hide modal immediately to improve responsiveness
+    setUpcomingReminderVisible(false);
+    
+    // Provide haptic feedback
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('Error with haptic feedback:', error);
+    }
+    
+    // Stop sound
+    stopAlertSound();
     
     // Animate out
     Animated.timing(upcomingReminderOpacity, {
       toValue: 0,
       duration: 300,
       useNativeDriver: true,
-    }).start(async () => {
-      await stopAlertSound();
-      setUpcomingReminderVisible(false);
-      setActiveReminders(prev => prev.filter(id => id !== upcomingReminder._id));
+    }).start(() => {
+      setActiveReminders(prev => prev.filter(id => id !== reminderToDismiss._id));
       setUpcomingReminder(null);
     });
   };
@@ -374,6 +414,13 @@ const Home = () => {
     setUpcomingReminderVisible(true);
     setActiveReminders(prev => [...prev, medicine._id]);
 
+    // Provide haptic feedback
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } catch (error) {
+      console.error('Error with haptic feedback:', error);
+    }
+
     // Play sound and animate
     playUpcomingSound();
     
@@ -390,25 +437,42 @@ const Home = () => {
       // Add to dismissed reminders list with type to prevent it from showing again
       setDismissedReminders(prev => [...prev, `${currentReminder._id}_due`]);
       
+      // First stop vibration immediately - do this before any async operations
+      Vibration.cancel();
+      
+      // Store reminder info for later use
+      const reminderToUpdate = {...currentReminder};
+      
+      // Hide modal and stop sounds immediately to improve responsiveness
+      setReminderVisible(false);
+      
+      // Use haptic feedback as confirmation
+      try {
+        if (taken) {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      } catch (error) {
+        console.error('Error with haptic feedback:', error);
+      }
+      
+      // Stop sound
+      await stopAlertSound();
+      
       // Animate out
       Animated.timing(reminderOpacity, {
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
       }).start(async () => {
-        // Stop sound
-        await stopAlertSound();
-        
-        // Hide modal
-        setReminderVisible(false);
-        
         // Update medicine status if taken
         if (taken) {
-          await updateMedicineStatus(currentReminder._id, true);
+          await updateMedicineStatus(reminderToUpdate._id, true);
         }
         
         // Remove from active reminders
-        setActiveReminders(prev => prev.filter(id => id !== currentReminder._id));
+        setActiveReminders(prev => prev.filter(id => id !== reminderToUpdate._id));
         
         // Clear current reminder
         setCurrentReminder(null);
@@ -509,7 +573,24 @@ const Home = () => {
           playsInSilentModeIOS: true,
           staysActiveInBackground: true,
           shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          allowsRecordingIOS: false,
         });
+        
+        // Preload sounds for better response time
+        console.log('Preloading sounds...');
+        try {
+          await Audio.Sound.createAsync(
+            { uri: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg' },
+            { shouldPlay: false }
+          );
+          await Audio.Sound.createAsync(
+            { uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' },
+            { shouldPlay: false }
+          );
+        } catch (preloadError) {
+          console.log('Error preloading sounds:', preloadError);
+        }
       } catch (error) {
         console.log('Error setting audio mode:', error);
       }

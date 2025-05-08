@@ -75,8 +75,10 @@
       }
     },
     "assets": [
-      "./public/sounds/alert.mp3",
-      "./public/sounds/upcoming.mp3"
+      "./public/sounds/reminder.mp3",
+      "./public/sounds/notification.mp3",
+      "./assets/sounds/reminder.mp3",
+      "./assets/sounds/notification.mp3"
     ]
   }
 }
