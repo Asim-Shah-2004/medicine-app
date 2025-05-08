@@ -10,3 +10,5 @@ www.who.int
 healthline.com
 www.webmd.com
 pubmed.ncbi.nlm.nih.gov
+
+install ffmpeg on device

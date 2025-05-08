@@ -67,6 +67,7 @@
     "react-native-screens": "~4.4.0",
     "react-native-svg": "15.8.0",
     "react-native-timeline-flatlist": "^0.8.0",
+    "react-native-toast-message": "^2.3.0",
     "react-native-web": "~0.19.13",
     "rn-emoji-keyboard": "^1.7.0",
     "socket.io-client": "^4.8.1"
