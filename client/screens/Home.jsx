@@ -16,6 +16,7 @@ import {
   Image,
   StatusBar,
   Platform,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,6 +25,7 @@ import axios from 'axios';
 import { SERVER_URL } from '@env';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import MedicationsModal from '../components/MedicationsModal';
 
 // Import these conditionally in case they're not installed
 let LinearGradient;
@@ -104,6 +106,14 @@ const Home = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // New states for analytics data
+  const [analyticsData, setAnalyticsData] = useState({
+    weeklyAvg: 0,
+    bestDay: '0%',
+    perfectDays: '0/7',
+    dailyProgress: [0, 0, 0, 0, 0, 0, 0] // Sunday to Saturday
+  });
+  
   // Reminder state management
   const [reminderVisible, setReminderVisible] = useState(false);
   const [upcomingReminderVisible, setUpcomingReminderVisible] = useState(false);
@@ -119,7 +129,10 @@ const Home = () => {
   const headerHeight = useRef(new Animated.Value(0)).current;
   const progressOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.95)).current;
-
+  
+  // All medications modal
+  const [allMedicinesVisible, setAllMedicinesVisible] = useState(false);
+  
   // Fetch data from the server
   const fetchData = async () => {
     try {
@@ -139,6 +152,9 @@ const Home = () => {
           headers: { Authorization: `Bearer ${token}` }
         }),
         axios.get(`${SERVER_URL}/api/user/medicines/schedule`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${SERVER_URL}/api/user/medicines`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
@@ -180,6 +196,16 @@ const Home = () => {
       if (responses[2].status === 'fulfilled') {
         scheduleData = responses[2].value.data.schedule || {};
       }
+      
+      // Process all medicines data and calculate analytics
+      let medicinesWithHistory = [];
+      if (responses[3].status === 'fulfilled') {
+        medicinesWithHistory = responses[3].value.data.medicines || [];
+      }
+      
+      // Calculate analytics from the medicine history
+      const analyticsResults = calculateAnalytics(medicinesWithHistory);
+      setAnalyticsData(analyticsResults);
 
       const firstMedicationTime = todayMeds.length > 0 ? todayMeds[0].time : null;
 
@@ -403,6 +429,15 @@ const Home = () => {
     // Pass the first medicine time to schedule for proper week start
     const firstMedicineTime = todayMedicines.length > 0 ? todayMedicines[0].time : null;
     navigation.navigate('Schedule', { schedule, firstMedicineTime });
+  };
+  
+  // Navigate to all medications screen instead of showing a modal
+  const goToAllMedications = () => {
+    console.log("Navigating to All Medications screen");
+    // Use getRootState().navigate to access screens outside the tab navigator
+    navigation.getParent().navigate('AllMedications', { 
+      medications: sortMedicationsByTime(todayMedicines)
+    });
   };
 
   // Show reminder for specific medicine
@@ -639,8 +674,43 @@ const Home = () => {
   useFocusEffect(
     useCallback(() => {
       fetchData();
+      
+      // Check for incoming navigation params
+      if (navigation.isFocused()) {
+        const params = navigation.getState().routes.find(r => r.name === 'Home')?.params;
+        if (params) {
+          // Handle medicine to take
+          if (params.medicineToTake) {
+            const medicineId = params.medicineToTake;
+            const medicineToTake = todayMedicines.find(med => med._id === medicineId);
+            if (medicineToTake && !medicineToTake.last_status) {
+              // Small delay to ensure everything is rendered
+              setTimeout(() => {
+                updateMedicineStatus(medicineId, true);
+              }, 300);
+            }
+            // Clear the parameter
+            navigation.setParams({ medicineToTake: undefined });
+          }
+          
+          // Handle medicine to show reminder for
+          if (params.medicineToRemind) {
+            const medicineId = params.medicineToRemind;
+            const medicineToRemind = todayMedicines.find(med => med._id === medicineId);
+            if (medicineToRemind && !medicineToRemind.last_status) {
+              // Small delay to ensure everything is rendered
+              setTimeout(() => {
+                showReminderForMedicine(medicineToRemind);
+              }, 300);
+            }
+            // Clear the parameter
+            navigation.setParams({ medicineToRemind: undefined });
+          }
+        }
+      }
+      
       return () => {};
-    }, [])
+    }, [navigation, todayMedicines])
   );
 
   // Configure audio session
@@ -704,6 +774,102 @@ const Home = () => {
       }).start();
     }
   }, [loading]);
+
+  // Calculate analytics based on medication history
+  const calculateAnalytics = useCallback((medicines) => {
+    try {
+      if (!medicines || medicines.length === 0) {
+        return {
+          weeklyAvg: 0,
+          bestDay: '0%',
+          perfectDays: '0/7', 
+          dailyProgress: [0, 0, 0, 0, 0, 0, 0]
+        };
+      }
+      
+      // Get dates for the past week
+      const today = new Date();
+      const dates = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        dates.push(date.toISOString().split('T')[0]); // Format as YYYY-MM-DD
+      }
+      
+      // Initialize counts for each day
+      const dailyCounts = dates.map(date => {
+        return {
+          date,
+          total: 0,
+          completed: 0,
+        };
+      });
+      
+      // Count medications for each day in the past week
+      medicines.forEach(medicine => {
+        if (!medicine.history) return;
+        
+        medicine.history.forEach(record => {
+          const recordIndex = dailyCounts.findIndex(day => day.date === record.date);
+          if (recordIndex !== -1) {
+            dailyCounts[recordIndex].total++;
+            if (record.completed) {
+              dailyCounts[recordIndex].completed++;
+            }
+          }
+        });
+      });
+      
+      // Calculate progress percentages
+      const dailyProgress = dailyCounts.map(day => {
+        if (day.total === 0) return 0;
+        return Math.round((day.completed / day.total) * 100);
+      });
+      
+      // Calculate weekly average
+      const completedSum = dailyCounts.reduce((sum, day) => sum + day.completed, 0);
+      const totalSum = dailyCounts.reduce((sum, day) => sum + day.total, 0);
+      const weeklyAvg = totalSum > 0 ? Math.round((completedSum / totalSum) * 100) : 0;
+      
+      // Find best day
+      const bestDayPercentage = Math.max(...dailyProgress);
+      const bestDay = bestDayPercentage > 0 ? `${bestDayPercentage}%` : 'N/A';
+      
+      // Count perfect days (100% completion)
+      const perfectDaysCount = dailyProgress.filter(percentage => percentage === 100).length;
+      const perfectDays = `${perfectDaysCount}/7`;
+      
+      return {
+        weeklyAvg,
+        bestDay,
+        perfectDays,
+        dailyProgress
+      };
+    } catch (error) {
+      console.error("Error calculating analytics:", error);
+      return {
+        weeklyAvg: 0,
+        bestDay: 'N/A',
+        perfectDays: '0/7',
+        dailyProgress: [0, 0, 0, 0, 0, 0, 0]
+      };
+    }
+  }, []);
+
+  // Sort medications helper function - sorts by time in descending order (later times first)
+  const sortMedicationsByTime = (medications) => {
+    return [...medications].sort((a, b) => {
+      const timeA = a.time.split(':').map(Number);
+      const timeB = b.time.split(':').map(Number);
+      
+      // Convert to minutes for easier comparison (24-hour format)
+      const minutesA = timeA[0] * 60 + timeA[1];
+      const minutesB = timeB[0] * 60 + timeB[1];
+      
+      // Sort in descending order (later times first)
+      return minutesB - minutesA;
+    });
+  };
 
   if (loading) {
     return (
@@ -873,11 +1039,31 @@ const Home = () => {
 
             <View style={styles.graphContainer}>
               <View style={styles.barGraph}>
+                {/* Sunday */}
+                <View style={styles.barContainer}>
+                  <View style={styles.barLabels}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[0]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[0], 5), 100) }
+                    ]}>
+                      <LinearGradient
+                        colors={['#ff7e5f', '#feb47b']}
+                        style={styles.bar}
+                      />
+                    </View>
+                    <Text style={styles.barDay}>S</Text>
+                  </View>
+                </View>
+
                 {/* Monday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>80%</Text>
-                    <View style={[styles.barColumn, { height: 80 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[1]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[1], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -890,8 +1076,11 @@ const Home = () => {
                 {/* Tuesday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>100%</Text>
-                    <View style={[styles.barColumn, { height: 100 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[2]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[2], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -904,8 +1093,11 @@ const Home = () => {
                 {/* Wednesday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>60%</Text>
-                    <View style={[styles.barColumn, { height: 60 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[3]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[3], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -918,8 +1110,11 @@ const Home = () => {
                 {/* Thursday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>90%</Text>
-                    <View style={[styles.barColumn, { height: 90 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[4]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[4], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -932,8 +1127,11 @@ const Home = () => {
                 {/* Friday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>75%</Text>
-                    <View style={[styles.barColumn, { height: 75 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[5]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[5], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -946,22 +1144,11 @@ const Home = () => {
                 {/* Saturday */}
                 <View style={styles.barContainer}>
                   <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>50%</Text>
-                    <View style={[styles.barColumn, { height: 50 }]}>
-                      <LinearGradient
-                        colors={['#ff7e5f', '#feb47b']}
-                        style={styles.bar}
-                      />
-                    </View>
-                    <Text style={styles.barDay}>S</Text>
-                  </View>
-                </View>
-
-                {/* Sunday */}
-                <View style={styles.barContainer}>
-                  <View style={styles.barLabels}>
-                    <Text style={styles.barValue}>85%</Text>
-                    <View style={[styles.barColumn, { height: 85 }]}>
+                    <Text style={styles.barValue}>{analyticsData.dailyProgress[6]}%</Text>
+                    <View style={[
+                      styles.barColumn, 
+                      { height: Math.min(Math.max(analyticsData.dailyProgress[6], 5), 100) }
+                    ]}>
                       <LinearGradient
                         colors={['#ff7e5f', '#feb47b']}
                         style={styles.bar}
@@ -975,17 +1162,17 @@ const Home = () => {
 
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>77%</Text>
+                <Text style={styles.statValue}>{analyticsData.weeklyAvg}%</Text>
                 <Text style={styles.statLabel}>Weekly Avg</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>100%</Text>
+                <Text style={styles.statValue}>{analyticsData.bestDay}</Text>
                 <Text style={styles.statLabel}>Best Day</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>5/7</Text>
+                <Text style={styles.statValue}>{analyticsData.perfectDays}</Text>
                 <Text style={styles.statLabel}>Perfect Days</Text>
               </View>
             </View>
@@ -995,120 +1182,123 @@ const Home = () => {
         {/* Today's Schedule Section */}
         <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Today's Schedule</Text>
-          <Text style={styles.sectionSubtitle}>Showing top 3 medications for today</Text>
+          <Text style={styles.sectionSubtitle}>Showing latest 3 medications</Text>
         
           {todayMedicines.length > 0 ? (
             <>
-              {todayMedicines.slice(0, 3).map((medicine, index) => (
-                <Animated.View 
-                  key={medicine._id} 
-                  style={[
-                    { 
-                      transform: [
-                        { scale: cardScale },
-                        { 
-                          translateY: cardScale.interpolate({
-                            inputRange: [0.95, 1],
-                            outputRange: [20 * (index + 1), 0]
-                          })
-                        }
-                      ]
-                    }
-                  ]}
-                >
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (!medicine.last_status) {
-                        showReminderForMedicine(medicine);
-                      }
-                    }}
-                    activeOpacity={0.7}
+              {/* Sort medicines by time in descending order */}
+              {sortMedicationsByTime(todayMedicines)
+                .slice(0, 3)
+                .map((medicine, index) => (
+                  <Animated.View 
+                    key={medicine._id} 
                     style={[
-                      styles.medicineCard,
-                      isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
-                      isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard,
-                      medicine.last_status && styles.takenMedicineCard,
+                      { 
+                        transform: [
+                          { scale: cardScale },
+                          { 
+                            translateY: cardScale.interpolate({
+                              inputRange: [0.95, 1],
+                              outputRange: [20 * (index + 1), 0]
+                            })
+                          }
+                        ]
+                      }
                     ]}
                   >
-                    <View style={styles.medicineCardContent}>
-                      <View style={styles.medicineDetails}>
-                        <View style={styles.medicineNameContainer}>
-                          <Text style={styles.medicineName}>{medicine.name}</Text>
-                          {isDueNow(medicine.time) && !medicine.last_status && (
-                            <View style={styles.dueNowBadge}>
-                              <Text style={styles.dueNowText}>DUE NOW</Text>
-                            </View>
-                          )}
-                          {isUpcoming(medicine.time) && !medicine.last_status && (
-                            <View style={styles.upcomingBadge}>
-                              <Text style={styles.upcomingText}>UPCOMING</Text>
-                            </View>
-                          )}
-                          {medicine.last_status && (
-                            <View style={styles.takenBadge}>
-                              <Text style={styles.takenBadgeText}>TAKEN</Text>
-                            </View>
-                          )}
-                        </View>
-                        
-                        <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
-                        
-                        <View style={styles.medicineTimeContainer}>
-                          <Feather name="clock" size={16} color={medicine.last_status ? "#4cd964" : isDueNow(medicine.time) ? "#ff3b30" : "#4682b4"} />
-                          <Text style={[
-                            styles.medicineTime,
-                            isDueNow(medicine.time) && !medicine.last_status && styles.dueNowTimeText,
-                            isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingTimeText,
-                            medicine.last_status && styles.takenTimeText,
-                          ]}>
-                            {formatTime(medicine.time)}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      <View style={styles.actionContainer}>
-                        {!medicine.last_status ? (
-                          <TouchableOpacity 
-                            style={styles.takeButton}
-                            onPress={() => updateMedicineStatus(medicine._id, true)}
-                          >
-                            <Text style={styles.takeButtonText}>Take</Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <View style={styles.takenIndicator}>
-                            <FontAwesome name="check" size={16} color="#fff" />
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (!medicine.last_status) {
+                          showReminderForMedicine(medicine);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                      style={[
+                        styles.medicineCard,
+                        isDueNow(medicine.time) && !medicine.last_status && styles.dueMedicineCard,
+                        isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingMedicineCard,
+                        medicine.last_status && styles.takenMedicineCard,
+                      ]}
+                    >
+                      <View style={styles.medicineCardContent}>
+                        <View style={styles.medicineDetails}>
+                          <View style={styles.medicineNameContainer}>
+                            <Text style={styles.medicineName}>{medicine.name}</Text>
+                            {isDueNow(medicine.time) && !medicine.last_status && (
+                              <View style={styles.dueNowBadge}>
+                                <Text style={styles.dueNowText}>DUE NOW</Text>
+                              </View>
+                            )}
+                            {isUpcoming(medicine.time) && !medicine.last_status && (
+                              <View style={styles.upcomingBadge}>
+                                <Text style={styles.upcomingText}>UPCOMING</Text>
+                              </View>
+                            )}
+                            {medicine.last_status && (
+                              <View style={styles.takenBadge}>
+                                <Text style={styles.takenBadgeText}>TAKEN</Text>
+                              </View>
+                            )}
                           </View>
-                        )}
+                          
+                          <Text style={styles.medicineDosage}>{medicine.dosage}</Text>
+                          
+                          <View style={styles.medicineTimeContainer}>
+                            <Feather name="clock" size={16} color={medicine.last_status ? "#4cd964" : isDueNow(medicine.time) ? "#ff3b30" : "#4682b4"} />
+                            <Text style={[
+                              styles.medicineTime,
+                              isDueNow(medicine.time) && !medicine.last_status && styles.dueNowTimeText,
+                              isUpcoming(medicine.time) && !medicine.last_status && styles.upcomingTimeText,
+                              medicine.last_status && styles.takenTimeText,
+                            ]}>
+                              {formatTime(medicine.time)}
+                            </Text>
+                          </View>
+                        </View>
+                        
+                        <View style={styles.actionContainer}>
+                          {!medicine.last_status ? (
+                            <TouchableOpacity 
+                              style={styles.takeButton}
+                              onPress={() => updateMedicineStatus(medicine._id, true)}
+                            >
+                              <Text style={styles.takeButtonText}>Take</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <View style={styles.takenIndicator}>
+                              <FontAwesome name="check" size={16} color="#fff" />
+                            </View>
+                          )}
+                        </View>
                       </View>
-                    </View>
+                    </TouchableOpacity>
+                  </Animated.View>
+                ))}
+                
+                {todayMedicines.length > 3 && (
+                  <TouchableOpacity 
+                    style={styles.viewMoreButton}
+                    onPress={goToAllMedications}
+                  >
+                    <Text style={styles.viewMoreText}>View All Medications</Text>
+                    <Feather name="grid" size={18} color="#ff7e5f" />
                   </TouchableOpacity>
-                </Animated.View>
-              ))}
-              
-              {todayMedicines.length > 3 && (
-                <TouchableOpacity 
-                  style={styles.viewMoreButton}
-                  onPress={goToSchedule}
-                >
-                  <Text style={styles.viewMoreText}>View All Medications</Text>
-                  <Feather name="chevron-right" size={18} color="#ff7e5f" />
-                </TouchableOpacity>
-              )}
-            </>
-          ) : (
-            <Animated.View style={{ opacity: progressOpacity }}>
-              <View style={styles.noMedicineContainer}>
-                <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
-                <Text style={styles.noMedicineText}>No medications scheduled for today</Text>
-                <TouchableOpacity 
-                  style={styles.addMedicineButton}
-                  onPress={goToAddMedicine}
-                >
-                  <Text style={styles.addMedicineButtonText}>Add Medication</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          )}
+                )}
+              </>
+            ) : (
+              <Animated.View style={{ opacity: progressOpacity }}>
+                <View style={styles.noMedicineContainer}>
+                  <MaterialCommunityIcons name="pill-off" size={50} color="#ddd" />
+                  <Text style={styles.noMedicineText}>No medications scheduled for today</Text>
+                  <TouchableOpacity 
+                    style={styles.addMedicineButton}
+                    onPress={goToAddMedicine}
+                  >
+                    <Text style={styles.addMedicineButtonText}>Add Medication</Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            )}
         </View>
       </ScrollView>
 
@@ -1573,7 +1763,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)', // Fallback for devices without blur support
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Fallback for devices without blur support
   },
   reminderContainer: {
     width: width * 0.85,
@@ -1846,6 +2036,8 @@ const styles = StyleSheet.create({
     width: 10,
     borderRadius: 5,
     overflow: 'hidden',
+    minHeight: 5, // Add a minimum height for zero values
+    maxHeight: 100, // Cap the maximum height
   },
   bar: {
     width: '100%',
@@ -1884,6 +2076,156 @@ const styles = StyleSheet.create({
     height: '80%',
     backgroundColor: '#f0f0f0',
     alignSelf: 'center',
+  },
+  modalBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  allMedicinesContainer: {
+    width: width * 0.9,
+    maxHeight: height * 0.8,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  allMedicinesContent: {
+    flex: 1,
+    padding: 20,
+  },
+  allMedicinesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 15,
+  },
+  allMedicinesTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#32325d',
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  medicineGridScroll: {
+    flex: 1,
+  },
+  medicineGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginHorizontal: -5,
+  },
+  medicineGridItem: {
+    width: '48%',
+    marginBottom: 15,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  medicineGridItemTaken: {
+    opacity: 0.7,
+    borderColor: '#4cd964',
+    borderWidth: 1,
+  },
+  medicineGridIconContainer: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 60,
+    marginBottom: 10,
+  },
+  gridItemBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#4cd964',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridItemDueBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#ff3b30',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  medicineGridItemName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#32325d',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  medicineGridItemNameTaken: {
+    color: '#8898aa',
+  },
+  medicineGridItemTime: {
+    fontSize: 12,
+    color: '#8898aa',
+    textAlign: 'center',
+  },
+  addMedicineButtonModal: {
+    backgroundColor: '#ff7e5f',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 30,
+    marginTop: 15,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  noMedicineGridContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  noMedicineGridText: {
+    fontSize: 16,
+    color: '#8898aa',
+    marginVertical: 16,
+    textAlign: 'center',
   },
 });
 

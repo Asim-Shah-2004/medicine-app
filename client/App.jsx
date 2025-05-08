@@ -17,6 +17,7 @@ import Schedule from './screens/Schedule.jsx';
 import Emergency from './screens/Emergency.jsx';
 import Chat from './screens/Chat.jsx';
 import Profile from './screens/Profile.jsx';
+import AllMedications from './screens/AllMedications.jsx';
 
 // Create the navigators
 const Stack = createNativeStackNavigator();
@@ -114,6 +115,11 @@ export default function App() {
           <Stack.Screen 
             name="Schedule" 
             component={Schedule} 
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="AllMedications" 
+            component={AllMedications} 
             options={{ headerShown: false }}
           />
         </Stack.Navigator>
