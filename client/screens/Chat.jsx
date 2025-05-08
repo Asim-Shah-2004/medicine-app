@@ -1,377 +1,296 @@
+// MediChat.js
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
+import { 
+  SafeAreaView, 
+  StyleSheet, 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  FlatList, 
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  Animated,
-  Dimensions
+  StatusBar,
+  Animated
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import Markdown from 'react-native-markdown-display';
-import * as Haptics from 'expo-haptics';
+import {SERVER_URL} from "@env"
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SERVER_URL } from '@env';
+import { Ionicons } from '@expo/vector-icons';
 
-const MedChat = () => {
-  const [messages, setMessages] = useState([]);
-  const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [displayText, setDisplayText] = useState('');
-  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+// API Configuration
+const API_URL = `${SERVER_URL}/api`;
+
+// Typing indicator component with animated dots
+const TypingIndicator = () => {
+  // Animation values for opacity and scale
+  const dot1Opacity = useRef(new Animated.Value(0.4)).current;
+  const dot2Opacity = useRef(new Animated.Value(0.4)).current;
+  const dot3Opacity = useRef(new Animated.Value(0.4)).current;
   
-  const scrollViewRef = useRef();
-  const recordingRef = useRef(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const typingAnim = useRef(new Animated.Value(0)).current;
+  const dot1Scale = useRef(new Animated.Value(1)).current;
+  const dot2Scale = useRef(new Animated.Value(1)).current;
+  const dot3Scale = useRef(new Animated.Value(1)).current;
 
-  // Initial animation and keyboard event listeners
   useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: true,
-    }).start();
-    
-    // Set up keyboard listeners
-    const keyboardWillShowListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      e => setKeyboardHeight(e.endCoordinates.height)
-    );
-    
-    const keyboardWillHideListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboardHeight(0)
-    );
-    
+    // Animation function for each dot
+    const animateDot = (dotOpacity, dotScale, delay) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.parallel([
+            Animated.timing(dotOpacity, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dotScale, {
+              toValue: 1.2,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(dotOpacity, {
+              toValue: 0.4,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dotScale, {
+              toValue: 1,
+              duration: 500,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      ).start();
+    };
+
+    // Start animations with different delays
+    animateDot(dot1Opacity, dot1Scale, 0);
+    animateDot(dot2Opacity, dot2Scale, 150);
+    animateDot(dot3Opacity, dot3Scale, 300);
+
+    // Cleanup animations when component unmounts
     return () => {
-      keyboardWillShowListener.remove();
-      keyboardWillHideListener.remove();
+      dot1Opacity.stopAnimation();
+      dot2Opacity.stopAnimation();
+      dot3Opacity.stopAnimation();
+      dot1Scale.stopAnimation();
+      dot2Scale.stopAnimation();
+      dot3Scale.stopAnimation();
     };
   }, []);
 
-  // Animate typing dots
-  useEffect(() => {
-    if (isLoading) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(typingAnim, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-          Animated.timing(typingAnim, {
-            toValue: 0,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    } else {
-      typingAnim.setValue(0);
-    }
-  }, [isLoading]);
+  return (
+    <View style={styles.botTypingContainer}>
+      <Animated.View 
+        style={[
+          styles.botTypingDot, 
+          { opacity: dot1Opacity, transform: [{ scale: dot1Scale }] }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.botTypingDot, 
+          { opacity: dot2Opacity, transform: [{ scale: dot2Scale }] }
+        ]} 
+      />
+      <Animated.View 
+        style={[
+          styles.botTypingDot, 
+          { opacity: dot3Opacity, transform: [{ scale: dot3Scale }] }
+        ]} 
+      />
+    </View>
+  );
+};
 
-  // Typewriter effect for bot messages
+const MediChat = () => {
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(null);
+  const [botTyping, setBotTyping] = useState(false);
+  const flatListRef = useRef(null);
+
   useEffect(() => {
-    if (messages.length > 0 && messages[messages.length - 1].sender === 'bot') {
-      const botMessage = messages[messages.length - 1].text || '';
-      if (currentMessageIndex < botMessage.length) {
-        const timeout = setTimeout(() => {
-          setDisplayText(botMessage.substring(0, currentMessageIndex + 1));
-          setCurrentMessageIndex(currentMessageIndex + 1);
-        }, 15); // Speed of typing
-        return () => clearTimeout(timeout);
+    // Get token from AsyncStorage on component mount
+    const getToken = async () => {
+      try {
+        const savedToken = await AsyncStorage.getItem('accessToken');
+        if (savedToken) {
+          setToken(savedToken);
+        }
+      } catch (error) {
+        console.error('Error retrieving token:', error);
       }
-    }
-  }, [currentMessageIndex, messages]);
-
-  // Reset currentMessageIndex when a new bot message arrives
-  useEffect(() => {
-    if (messages.length > 0 && messages[messages.length - 1].sender === 'bot') {
-      setDisplayText('');
-      setCurrentMessageIndex(0);
-    }
-  }, [messages]);
+    };
+    
+    getToken();
+  }, []);
 
   const sendMessage = async () => {
-    if (inputText.trim() === '') return;
+    if (!inputText.trim() || !token) return;
     
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const userMessage = { id: Date.now(), text: inputText, sender: 'user' };
+    const userMessage = {
+      id: Date.now().toString(),
+      text: inputText,
+      sender: 'user',
+      timestamp: new Date().toISOString(),
+    };
+    
     setMessages(prevMessages => [...prevMessages, userMessage]);
     setInputText('');
-    setIsLoading(true);
-
+    setLoading(true);
+    setBotTyping(true);
+    
     try {
-      // Get access token from AsyncStorage
-      const accessToken = await AsyncStorage.getItem('accessToken');
-      
-      const response = await fetch(`${SERVER_URL}/api/chat`, {
+      const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt: inputText }),
+        body: JSON.stringify({
+          prompt: userMessage.text,
+        }),
       });
-
+      
       const data = await response.json();
       
-      setIsLoading(false);
-      setMessages(prevMessages => [
-        ...prevMessages,
-        { id: Date.now(), text: data.response, sender: 'bot' }
-      ]);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setIsLoading(false);
-      setMessages(prevMessages => [
-        ...prevMessages,
-        { id: Date.now(), text: "Sorry, I'm having trouble connecting right now. Please try again later.", sender: 'bot' }
-      ]);
-    }
-  };
-
-  // Scroll to bottom when new messages arrive or keyboard shows/hides
-  useEffect(() => {
-    if (scrollViewRef.current) {
+      // Short delay to show typing indicator
       setTimeout(() => {
-        scrollViewRef.current.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  }, [messages, displayText, keyboardHeight]);
-
-  const startRecording = async () => {
-    try {
-      // Request permissions
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Permission to access microphone is required!');
-        return;
-      }
-
-      // Start recording
-      setIsRecording(true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      await recording.startAsync();
-      recordingRef.current = recording;
-    } catch (error) {
-      console.error('Failed to start recording', error);
-      setIsRecording(false);
-    }
-  };
-
-  const stopRecording = async () => {
-    if (!recordingRef.current) return;
-    
-    try {
-      setIsRecording(false);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        if (response.ok) {
+          const botMessage = {
+            id: (Date.now() + 1).toString(),
+            text: data.response,
+            sender: 'bot',
+            timestamp: new Date().toISOString(),
+          };
+          
+          setMessages(prevMessages => [...prevMessages, botMessage]);
+        } else {
+          // Handle API error
+          const errorMessage = {
+            id: (Date.now() + 1).toString(),
+            text: data.message || 'Sorry, I encountered an error processing your request.',
+            sender: 'bot',
+            error: true,
+            timestamp: new Date().toISOString(),
+          };
+          
+          setMessages(prevMessages => [...prevMessages, errorMessage]);
+        }
+        
+        setLoading(false);
+        setBotTyping(false);
+      }, 800);
       
-      await recordingRef.current.stopAndUnloadAsync();
-      const uri = recordingRef.current.getURI();
-      recordingRef.current = null;
-      
-      // Process the recording with a speech-to-text service
-      processVoiceToText(uri);
     } catch (error) {
-      console.error('Failed to stop recording', error);
+      console.error('Send message error:', error);
+      const errorMessage = {
+        id: (Date.now() + 1).toString(),
+        text: 'Network error. Please check your connection and try again.',
+        sender: 'bot',
+        error: true,
+        timestamp: new Date().toISOString(),
+      };
+      
+      setMessages(prevMessages => [...prevMessages, errorMessage]);
+      setLoading(false);
+      setBotTyping(false);
     }
   };
 
-  const processVoiceToText = async (audioUri) => {
-    // This is where you would connect to a speech-to-text service
-    // For now, we'll simulate it with a placeholder text
-    setIsLoading(true);
-    
-    // Simulating API call delay
-    setTimeout(() => {
-      setInputText("What are the common symptoms of diabetes?"); // Example text
-      setIsLoading(false);
-    }, 1500);
-    
-    // In a real implementation, you would:
-    // 1. Send the audio file to a speech-to-text service
-    // 2. Get the transcribed text back
-    // 3. Set it as the input text
-  };
-
-  const renderLoadingBubbles = () => (
-    <View style={styles.botBubble}>
-      <View style={styles.botIconContainer}>
-        <Ionicons name="medkit" size={20} color="#FF7F50" />
-      </View>
-      <Animated.View 
-        style={[
-          styles.loadingContainer,
-          { opacity: typingAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.5, 1]
-          }) }
-        ]}
-      >
-        <View style={styles.loadingBubble} />
-        <View style={[styles.loadingBubble, { marginLeft: 4 }]} />
-        <View style={[styles.loadingBubble, { marginLeft: 4 }]} />
-      </Animated.View>
+  // Display raw message text without parsing
+  const renderMessage = ({ item }) => (
+    <View 
+      style={[
+        styles.messageBubble, 
+        item.sender === 'user' ? styles.userBubble : styles.botBubble,
+        item.error && styles.errorBubble
+      ]}
+    >
+      <Text style={[
+        styles.messageText, 
+        item.sender === 'user' && styles.userMessageText
+      ]}>
+        {item.text}
+      </Text>
     </View>
   );
 
-  const renderMessage = (message, index) => {
-    if (!message) return null;
-    
-    const isLastBotMessage = 
-      message.sender === 'bot' && 
-      index === messages.length - 1;
-
-    return (
-      <View
-        key={message.id}
-        style={[
-          styles.messageBubble,
-          message.sender === 'user'
-            ? styles.userBubble
-            : styles.botBubble,
-        ]}
-      >
-        {message.sender === 'bot' && (
-          <View style={styles.botIconContainer}>
-            <Ionicons name="medkit" size={20} color="#FF7F50" />
-          </View>
-        )}
-        <View style={styles.messageContent}>
-          {message.sender === 'bot' && isLastBotMessage ? (
-            <Markdown style={markdownStyles}>
-              {displayText || ''}
-            </Markdown>
-          ) : (
-            <Markdown style={markdownStyles}>
-              {message.text || ''}
-            </Markdown>
-          )}
-        </View>
-      </View>
-    );
-  };
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      flatListRef.current.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoid}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <Ionicons name="medical" size={24} color="#FF7F50" />
+          <Text style={styles.headerTitle}>MediChat</Text>
+        </View>
+      </View>
+      
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.chatContainer}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        <Animated.View 
-          style={[
-            styles.header, 
-            { transform: [{ translateY: slideAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [-50, 0]
-            }) }] }
-          ]}
-        >
-          <View style={styles.headerContent}>
-            <Ionicons name="medkit" size={24} color="#FF7F50" />
-            <Text style={styles.headerTitle}>MedChat Assistant</Text>
+        {messages.length === 0 ? (
+          <View style={styles.welcomeContainer}>
+            <Ionicons name="chatbubble-ellipses-outline" size={64} color="#FF7F50" />
+            <Text style={styles.welcomeTitle}>Welcome to MediChat</Text>
+            <Text style={styles.welcomeText}>
+              Ask me any medical questions you have, and I'll provide helpful information
+              with citations to reliable sources.
+            </Text>
+            <Text style={styles.disclaimerText}>
+              Note: This is for informational purposes only and not a substitute for 
+              professional medical advice.
+            </Text>
           </View>
-        </Animated.View>
-
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.messagesContainer}
-          contentContainerStyle={[
-            styles.messagesContent,
-            { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 100 : 20 }
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
-          {messages && messages.length === 0 ? (
-            <Animated.View 
-              style={[
-                styles.emptyStateContainer,
-                { opacity: slideAnim }
-              ]}
-            >
-              <Ionicons name="chatbubbles-outline" size={70} color="#FF7F50" />
-              <Text style={styles.emptyStateTitle}>Welcome to MedChat</Text>
-              <Text style={styles.emptyStateText}>
-                Ask me any medical questions. I'm here to help!
-              </Text>
-            </Animated.View>
-          ) : (
-            messages && messages.map(renderMessage)
-          )}
-          {isLoading && renderLoadingBubbles()}
-        </ScrollView>
-
-        <Animated.View 
-          style={[
-            styles.inputContainer,
-            { transform: [{ translateY: slideAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [50, 0]
-            }) }] }
-          ]}
-        >
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.messagesList}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            ListFooterComponent={() => botTyping ? <TypingIndicator /> : null}
+          />
+        )}
+        
+        <View style={styles.inputContainer}>
           <TextInput
-            style={styles.input}
-            placeholder="Type your question..."
+            style={styles.textInput}
             value={inputText}
             onChangeText={setInputText}
+            placeholder="Type your medical question..."
             multiline
           />
-          <TouchableOpacity
-            style={styles.sendButton}
+          <TouchableOpacity 
+            style={[
+              styles.sendButton,
+              (!inputText.trim() || !token || loading) && styles.sendButtonDisabled
+            ]} 
             onPress={sendMessage}
-            disabled={inputText.trim() === '' || isLoading}
+            disabled={loading || !inputText.trim() || !token}
           >
-            <Ionicons
-              name="send"
-              size={20}
-              color={inputText.trim() === '' || isLoading ? '#ccc' : 'white'}
-            />
+            {loading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="send" size={20} color="#fff" />
+            )}
           </TouchableOpacity>
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity
-              style={[
-                styles.micButton,
-                isRecording && styles.recordingButton,
-              ]}
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
-            >
-              <Ionicons
-                name={isRecording ? "mic" : "mic-outline"}
-                size={20}
-                color={isRecording ? 'white' : '#FF7F50'}
-              />
-            </TouchableOpacity>
-          </Animated.View>
-        </Animated.View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -380,198 +299,125 @@ const MedChat = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
-  },
-  keyboardAvoid: {
-    flex: 1,
-    position: 'relative',
+    backgroundColor: '#fff',
   },
   header: {
-    backgroundColor: 'white',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   headerTitle: {
-    marginLeft: 10,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    marginLeft: 8,
+    color: '#FF7F50',
+  },
+  chatContainer: {
+    flex: 1,
+  },
+  welcomeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  welcomeTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FF7F50',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  welcomeText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 16,
     color: '#333',
   },
-  messagesContainer: {
-    flex: 1,
-    paddingHorizontal: 15,
+  disclaimerText: {
+    fontSize: 12,
+    textAlign: 'center',
+    color: '#666',
+    fontStyle: 'italic',
   },
-  messagesContent: {
-    paddingTop: 20,
-    paddingBottom: 10,
+  messagesList: {
+    padding: 16,
+    paddingBottom: 24,
   },
   messageBubble: {
-    marginBottom: 12,
-    borderRadius: 18,
     padding: 12,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
-    // Remove maxWidth to allow bubbles to size according to content
+    borderRadius: 16,
+    marginBottom: 12,
+    maxWidth: '85%',
   },
   userBubble: {
-    alignSelf: 'flex-end',
     backgroundColor: '#FF7F50',
-    maxWidth: '80%', // Limit maximum width but allow shrinking
+    alignSelf: 'flex-end',
   },
   botBubble: {
+    backgroundColor: '#f0f0f0',
     alignSelf: 'flex-start',
-    backgroundColor: '#F8F8F8',
+  },
+  errorBubble: {
+    backgroundColor: '#ffeded',
+  },
+  messageText: {
+    fontSize: 15,
+    color: '#333',
+  },
+  userMessageText: {
+    color: '#fff',
+  },
+  botTypingContainer: {
     flexDirection: 'row',
-    maxWidth: '85%', // Limit maximum width but allow shrinking
-  },
-  botIconContainer: {
-    marginRight: 8,
+    padding: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 16,
     alignSelf: 'flex-start',
+    marginBottom: 12,
+    width: 70,
+    justifyContent: 'center',
   },
-  messageContent: {
-    flex: 1,
+  botTypingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#888',
+    marginHorizontal: 4,
   },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    backgroundColor: 'white',
+    padding: 12,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
-    // Make sure input stays at bottom regardless of keyboard
-    position: Platform.OS === 'ios' ? 'relative' : 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 2,
   },
-  input: {
+  textInput: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#f5f5f5',
     borderRadius: 20,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    marginRight: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     maxHeight: 100,
   },
   sendButton: {
+    marginLeft: 8,
     backgroundColor: '#FF7F50',
     width: 40,
     height: 40,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
-  micButton: {
-    backgroundColor: '#fff',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FF7F50',
-  },
-  recordingButton: {
-    backgroundColor: '#FF7F50',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  loadingBubble: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FF7F50',
-    opacity: 0.7,
-  },
-  emptyStateContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 100,
-  },
-  emptyStateTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    maxWidth: '80%',
-  },
+  sendButtonDisabled: {
+    backgroundColor: '#FFB199',
+  }
 });
 
-const markdownStyles = {
-  body: {
-    color: '#333',
-    fontSize: 15,
-  },
-  heading1: {
-    fontSize: 20,
-    marginTop: 8,
-    marginBottom: 8,
-    fontWeight: 'bold',
-    color: '#222',
-  },
-  heading2: {
-    fontSize: 18,
-    marginTop: 8,
-    marginBottom: 8,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  link: {
-    color: '#FF7F50',
-    textDecorationLine: 'underline',
-  },
-  list_item: {
-    marginBottom: 6,
-  },
-  bullet_list: {
-    marginVertical: 8,
-  },
-  paragraph: {
-    marginVertical: 8,
-  },
-  strong: {
-    fontWeight: 'bold',
-    color: '#FF7F50',
-  },
-  em: {
-    fontStyle: 'italic',
-  },
-  blockquote: {
-    backgroundColor: '#f9f9f9',
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF7F50',
-    paddingLeft: 12,
-    paddingVertical: 8,
-    marginVertical: 8,
-  },
-};
-
-export default MedChat;
+export default MediChat;
