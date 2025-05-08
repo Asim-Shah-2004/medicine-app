@@ -7,13 +7,20 @@ import {
   FlatList,
   ActivityIndicator,
   SafeAreaView,
-  Alert
+  Alert,
+  Platform,
+  StatusBar,
+  Dimensions
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons, FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { SERVER_URL } from '@env';
+
+const { width } = Dimensions.get('window');
+const CALENDAR_WIDTH = width - 32; // Full width minus padding
+const DAY_WIDTH = CALENDAR_WIDTH / 7; // Width of each day column
 
 const Schedule = () => {
   const navigation = useNavigation();
@@ -76,6 +83,11 @@ const Schedule = () => {
     return date.toLocaleDateString('en-US', options);
   };
 
+  // Format month for display
+  const formatMonthForDisplay = (date) => {
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
   // Fetch schedule from API
   const fetchSchedule = async (start, end) => {
     try {
@@ -92,7 +104,7 @@ const Schedule = () => {
         { headers: { Authorization: `Bearer ${token}` }}
       );
       
-      // Filter out onboarding medicines (those with IDs starting with 'onboarding-med-')
+      // Filter out onboarding medicines
       const filteredSchedule = {};
       Object.keys(response.data.schedule).forEach(date => {
         filteredSchedule[date] = response.data.schedule[date].filter(
@@ -153,23 +165,16 @@ const Schedule = () => {
   // Return to today
   const goToToday = () => {
     const today = new Date();
-    
-    // Start from today
     const startDate = today;
-    
-    // Format dates for API
     const formattedStart = formatDateForAPI(startDate);
     const endDate = new Date(startDate);
-    endDate.setDate(startDate.getDate() + 6); // 7 days from today
+    endDate.setDate(startDate.getDate() + 6);
     const formattedEnd = formatDateForAPI(endDate);
     
     setStartDate(formattedStart);
     setEndDate(formattedEnd);
     setCurrentWeekStart(startDate);
-    
-    // Set selected day to today
-    const formattedToday = formatDateForAPI(today);
-    setSelectedDay(formattedToday);
+    setSelectedDay(formattedStart);
     
     fetchSchedule(formattedStart, formattedEnd);
   };
@@ -223,11 +228,6 @@ const Schedule = () => {
   const goToAddMedicine = () => {
     navigation.navigate('AddMedicine');
   };
-  
-  // Navigate to edit medication screen
-  const editMedicine = (medicineId) => {
-    navigation.navigate('EditMedicine', { medicineId });
-  };
 
   if (loading) {
     return (
@@ -240,9 +240,11 @@ const Schedule = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
+      
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Medicine Calendar</Text>
@@ -251,31 +253,42 @@ const Schedule = () => {
         </TouchableOpacity>
       </View>
       
-      {/* Week Navigation */}
-      <View style={styles.weekNavigation}>
-        <TouchableOpacity onPress={goToPreviousWeek} style={styles.navButton}>
-          <Ionicons name="chevron-back" size={24} color="#666" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
-          <Text style={styles.todayText}>Today</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity onPress={goToNextWeek} style={styles.navButton}>
-          <Ionicons name="chevron-forward" size={24} color="#666" />
-        </TouchableOpacity>
+      {/* Month Display and Navigation */}
+      <View style={styles.monthContainer}>
+        <Text style={styles.monthText}>
+          {currentWeekStart ? formatMonthForDisplay(currentWeekStart) : ''}
+        </Text>
+        <View style={styles.navigationContainer}>
+          <TouchableOpacity onPress={goToPreviousWeek} style={styles.navButton}>
+            <Ionicons name="chevron-back" size={24} color="#666" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity onPress={goToToday} style={styles.todayButton}>
+            <Text style={styles.todayText}>Today</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity onPress={goToNextWeek} style={styles.navButton}>
+            <Ionicons name="chevron-forward" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
       </View>
       
       {/* Calendar Week View */}
       <View style={styles.calendarContainer}>
-        <FlatList
-          horizontal
-          data={getWeekDays()}
-          keyExtractor={(item) => item.dateString}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.calendarList}
-          renderItem={({ item }) => (
+        {/* Weekday Headers */}
+        <View style={styles.weekdayHeader}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+            <View key={day} style={styles.weekdayHeaderItem}>
+              <Text style={styles.weekdayHeaderText}>{day}</Text>
+            </View>
+          ))}
+        </View>
+        
+        {/* Calendar Days */}
+        <View style={styles.daysContainer}>
+          {getWeekDays().map((item) => (
             <TouchableOpacity
+              key={item.dateString}
               style={[
                 styles.dayItem,
                 selectedDay === item.dateString && styles.selectedDayItem,
@@ -283,110 +296,91 @@ const Schedule = () => {
               ]}
               onPress={() => selectDay(item.dateString)}
             >
-              <Text
-                style={[
-                  styles.dayName,
-                  selectedDay === item.dateString && styles.selectedDayText,
-                  item.isToday && styles.todayItemText
-                ]}
-              >
-                {item.dayName}
-              </Text>
-              <Text
-                style={[
-                  styles.dayNumber,
-                  selectedDay === item.dateString && styles.selectedDayText,
-                  item.isToday && styles.todayItemText
-                ]}
-              >
-                {item.dayNumber}
-              </Text>
-              {item.hasMeds && (
-                <View
+              <View style={styles.dayNumberContainer}>
+                <Text
                   style={[
-                    styles.medIndicator,
-                    selectedDay === item.dateString && styles.selectedMedIndicator
+                    styles.dayNumber,
+                    selectedDay === item.dateString && styles.selectedDayText,
+                    item.isToday && styles.todayText
                   ]}
                 >
+                  {item.dayNumber}
+                </Text>
+                {item.hasMeds && (
                   <Text
                     style={[
-                      styles.medCount,
-                      selectedDay === item.dateString && styles.selectedMedCount
+                      styles.superscriptCount,
+                      selectedDay === item.dateString && styles.selectedSuperscriptCount
                     ]}
                   >
                     {item.medCount}
                   </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
-        />
-      </View>
-      
-      {/* Selected Day Header */}
-      <View style={styles.selectedDayHeader}>
-        <Text style={styles.selectedDayTitle}>
-          {selectedDay ? formatDateForDisplay(selectedDay) : 'No day selected'}
-        </Text>
-        <Text style={styles.medicineCount}>
-          {dayMedicines.length} {dayMedicines.length === 1 ? 'Medicine' : 'Medicines'}
-        </Text>
-      </View>
-      
-      {/* Medicines List - Now just shows status instead of actions */}
-      <FlatList
-        data={dayMedicines}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.medicinesList}
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="calendar-outline" size={60} color="#ddd" />
-            <Text style={styles.emptyText}>No medications scheduled for this day</Text>
-          </View>
-        )}
-        renderItem={({ item }) => {
-          // Check if selected day is today
-          const isToday = selectedDay === formatDateForAPI(new Date());
-          
-          return (
-            <View style={[
-              styles.medicineCard, 
-              item.completed && styles.completedMedicineCard
-            ]}>
-              <View style={styles.medicineDetails}>
-                <Text style={styles.medicineName}>{item.name}</Text>
-                <Text style={styles.medicineDosage}>{item.dosage}</Text>
-                <Text style={styles.medicineTime}>{formatTime(item.time)}</Text>
-                
-                {/* Status Display - Show status instead of actions */}
-                {item.completed ? (
-                  <View style={styles.statusContainer}>
-                    <FontAwesome name="check-circle" size={16} color="#4CAF50" />
-                    <Text style={styles.statusText}>Taken</Text>
-                  </View>
-                ) : isToday ? (
-                  <View style={styles.statusContainer}>
-                    <MaterialIcons name="pending" size={16} color="#FF7F50" />
-                    <Text style={styles.pendingText}>Scheduled</Text>
-                  </View>
-                ) : (
-                  <View style={styles.statusContainer}>
-                    <MaterialIcons name="cancel" size={16} color="#F44336" />
-                    <Text style={styles.missedText}>Not Taken</Text>
-                  </View>
                 )}
               </View>
-              
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => editMedicine(item.id)}
-              >
-                <MaterialIcons name="edit" size={16} color="#666" />
-              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      
+      {/* Medicines List */}
+      <View style={styles.medicinesContainer}>
+        <Text style={styles.medicinesHeader}>
+          {selectedDay ? formatDateForDisplay(selectedDay) : 'No day selected'}
+          <Text style={styles.medicineCount}> • {dayMedicines.length} {dayMedicines.length === 1 ? 'Medicine' : 'Medicines'}</Text>
+        </Text>
+        
+        <FlatList
+          data={dayMedicines}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.medicinesList}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="calendar-outline" size={60} color="#ddd" />
+              <Text style={styles.emptyText}>No medications scheduled for this day</Text>
             </View>
-          );
-        }}
-      />
+          )}
+          renderItem={({ item }) => {
+            const isToday = selectedDay === formatDateForAPI(new Date());
+            
+            return (
+              <View style={[
+                styles.medicineCard,
+                item.completed && styles.completedMedicineCard
+              ]}>
+                <View style={styles.medicineContent}>
+                  <View style={styles.medicineInfo}>
+                    <Text style={styles.medicineName}>{item.name}</Text>
+                    <Text style={styles.medicineDosage}>{item.dosage}</Text>
+                    <View style={styles.timeContainer}>
+                      <Ionicons name="time-outline" size={16} color="#FF7F50" />
+                      <Text style={styles.medicineTime}>{formatTime(item.time)}</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.statusContainer}>
+                    {item.completed ? (
+                      <View style={styles.statusBadge}>
+                        <FontAwesome name="check-circle" size={16} color="#4CAF50" />
+                        <Text style={styles.statusText}>Taken</Text>
+                      </View>
+                    ) : isToday ? (
+                      <View style={[styles.statusBadge, styles.pendingBadge]}>
+                        <MaterialIcons name="pending" size={16} color="#FF7F50" />
+                        <Text style={styles.pendingText}>Scheduled</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusBadge, styles.missedBadge]}>
+                        <MaterialIcons name="cancel" size={16} color="#F44336" />
+                        <Text style={styles.missedText}>Not Taken</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            );
+          }}
+        />
+      </View>
     </SafeAreaView>
   );
 };
@@ -405,16 +399,21 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#333',
+    color: '#666',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 10,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+  },
+  backButton: {
+    padding: 8,
   },
   headerTitle: {
     fontSize: 20,
@@ -429,23 +428,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  weekNavigation: {
+  monthContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+  },
+  monthText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  navigationContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
   },
   navButton: {
-    padding: 5,
+    padding: 8,
   },
   todayButton: {
     backgroundColor: '#FF7F50',
     paddingVertical: 6,
-    paddingHorizontal: 15,
-    borderRadius: 15,
+    paddingHorizontal: 16,
+    borderRadius: 20,
   },
   todayText: {
     color: '#fff',
@@ -453,22 +459,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   calendarContainer: {
-    paddingVertical: 15,
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  calendarList: {
-    paddingHorizontal: 10,
+  weekdayHeader: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekdayHeaderItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  weekdayHeaderText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  daysContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   dayItem: {
-    alignItems: 'center',
+    width: DAY_WIDTH,
+    height: DAY_WIDTH,
     justifyContent: 'center',
-    width: 60,
-    height: 80,
-    marginHorizontal: 6,
-    borderRadius: 10,
-    backgroundColor: '#f9f9f9',
-    padding: 8,
+    alignItems: 'center',
+    borderRadius: DAY_WIDTH / 2,
+    marginVertical: 4,
   },
   selectedDayItem: {
     backgroundColor: '#FF7F50',
@@ -478,147 +499,139 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FF7F50',
   },
-  dayName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-    marginBottom: 5,
+  dayNumberContainer: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
   dayNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
   },
   selectedDayText: {
     color: '#fff',
   },
-  todayItemText: {
+  todayText: {
     color: '#FF7F50',
   },
-  medIndicator: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: '#FF7F50',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  selectedMedIndicator: {
-    backgroundColor: '#fff',
-  },
-  medCount: {
-    color: '#fff',
-    fontSize: 12,
+  superscriptCount: {
+    fontSize: 10,
     fontWeight: 'bold',
-  },
-  selectedMedCount: {
     color: '#FF7F50',
+    marginLeft: 1,
+    marginTop: -4,
   },
-  selectedDayHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+  selectedSuperscriptCount: {
+    color: '#fff',
   },
-  selectedDayTitle: {
+  medicinesContainer: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  medicinesHeader: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
   medicineCount: {
-    fontSize: 14,
     color: '#666',
-    marginTop: 4,
+    fontWeight: 'normal',
   },
   medicinesList: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    flexGrow: 1,
+    padding: 16,
   },
   medicineCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 10,
-    elevation: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF7F50',
+    shadowRadius: 4,
+    overflow: 'hidden',
   },
   completedMedicineCard: {
+    borderLeftWidth: 4,
     borderLeftColor: '#4CAF50',
-    backgroundColor: '#F1F8E9',
   },
-  medicineDetails: {
+  medicineContent: {
+    padding: 16,
+  },
+  medicineInfo: {
     flex: 1,
   },
   medicineName: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 4,
   },
   medicineDosage: {
     fontSize: 14,
     color: '#666',
-    marginTop: 4,
+    marginBottom: 8,
+  },
+  timeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   medicineTime: {
     fontSize: 14,
     color: '#FF7F50',
-    fontWeight: '600',
-    marginTop: 4,
+    marginLeft: 6,
+    fontWeight: '500',
   },
   statusContainer: {
+    marginTop: 12,
+  },
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    backgroundColor: '#E8F5E9',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  pendingBadge: {
+    backgroundColor: '#FFF3E0',
+  },
+  missedBadge: {
+    backgroundColor: '#FFEBEE',
   },
   statusText: {
     marginLeft: 6,
-    fontSize: 14,
+    fontSize: 12,
     color: '#4CAF50',
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   pendingText: {
     marginLeft: 6,
-    fontSize: 14,
+    fontSize: 12,
     color: '#FF7F50',
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   missedText: {
     marginLeft: 6,
-    fontSize: 14,
+    fontSize: 12,
     color: '#F44336',
-    fontWeight: 'bold',
-  },
-  editButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    fontWeight: '600',
   },
   emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
-    marginTop: 10,
+    marginTop: 16,
     fontSize: 16,
-    color: '#999',
+    color: '#666',
     textAlign: 'center',
   },
 });
