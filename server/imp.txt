@@ -1,0 +1,12 @@
+install this also
+pip install -U langchain-community
+
+sites to add in cse id
+www.mayoclinic.org
+www.nih.gov
+medlineplus.gov
+www.cdc.gov
+www.who.int
+healthline.com
+www.webmd.com
+pubmed.ncbi.nlm.nih.gov
