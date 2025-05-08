@@ -13,13 +13,14 @@ import {
   Platform,
   StatusBar,
   Animated,
-  ScrollView
+  ScrollView,
+  Linking
 } from 'react-native';
 import {SERVER_URL} from "@env"
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome, MaterialIcons } from '@expo/vector-icons';
 // Import markdown parser
-import Markdown from 'react-native-markdown-display';
+import Markdown, { MarkdownIt } from 'react-native-markdown-display';
 
 // API Configuration
 const API_URL = `${SERVER_URL}/api`;
@@ -133,6 +134,17 @@ const MediChat = () => {
     getToken();
   }, []);
 
+  // Variable for minimum typing time based on response length
+  const getTypingDelay = (text) => {
+    const baseDelay = 800;
+    const wordsPerMinute = 600; // Bot "typing" speed
+    const wordCount = text.split(/\s+/).length;
+    const readingTime = (wordCount / wordsPerMinute) * 60 * 1000;
+    
+    // Cap at reasonable maximums and minimums
+    return Math.min(Math.max(baseDelay, readingTime), 3000);
+  };
+
   const sendMessage = async () => {
     if (!inputText.trim() || !token) return;
     
@@ -162,19 +174,45 @@ const MediChat = () => {
       
       const data = await response.json();
       
-      // Short delay to show typing indicator
-      setTimeout(() => {
-        if (response.ok) {
+      if (response.ok) {
+        // Pre-process response text to enhance markdown formatting
+        let enhancedResponse = data.response;
+        
+        // Add section highlighting for better readability
+        // e.g., transform "Symptoms:" into "## Symptoms:"
+        const medicalSections = ['Symptoms:', 'Treatment:', 'Causes:', 'Diagnosis:', 'Prevention:', 'Side Effects:', 'Dosage:'];
+        medicalSections.forEach(section => {
+          // Only add ## if it's not already a markdown heading
+          const regex = new RegExp(`(?<!#)\\s*${section}\\s*(?!#)`, 'g');
+          enhancedResponse = enhancedResponse.replace(regex, `\n## ${section}\n`);
+        });
+        
+        // Add blockquote formatting for important warnings
+        const importantNotes = ['Note:', 'Important:', 'Warning:', 'Caution:', 'Remember:'];
+        importantNotes.forEach(note => {
+          const regex = new RegExp(`${note}\\s*(.+?)(?=\\n\\n|$)`, 'gs');
+          enhancedResponse = enhancedResponse.replace(regex, `> ${note} $1`);
+        });
+        
+        // Calculate a realistic typing delay based on response length
+        const typingDelay = getTypingDelay(enhancedResponse);
+        
+        // Show typing indicator for a realistic amount of time
+        setTimeout(() => {
           const botMessage = {
             id: (Date.now() + 1).toString(),
-            text: data.response,
+            text: enhancedResponse,
             sender: 'bot',
             timestamp: new Date().toISOString(),
           };
           
           setMessages(prevMessages => [...prevMessages, botMessage]);
-        } else {
-          // Handle API error
+          setLoading(false);
+          setBotTyping(false);
+        }, typingDelay);
+      } else {
+        // Handle API error with a shorter delay
+        setTimeout(() => {
           const errorMessage = {
             id: (Date.now() + 1).toString(),
             text: data.message || 'Sorry, I encountered an error processing your request.',
@@ -184,118 +222,295 @@ const MediChat = () => {
           };
           
           setMessages(prevMessages => [...prevMessages, errorMessage]);
-        }
-        
-        setLoading(false);
-        setBotTyping(false);
-      }, 800);
+          setLoading(false);
+          setBotTyping(false);
+        }, 800);
+      }
       
     } catch (error) {
       console.error('Send message error:', error);
-      const errorMessage = {
-        id: (Date.now() + 1).toString(),
-        text: 'Network error. Please check your connection and try again.',
-        sender: 'bot',
-        error: true,
-        timestamp: new Date().toISOString(),
-      };
-      
-      setMessages(prevMessages => [...prevMessages, errorMessage]);
-      setLoading(false);
-      setBotTyping(false);
+      setTimeout(() => {
+        const errorMessage = {
+          id: (Date.now() + 1).toString(),
+          text: 'Network error. Please check your connection and try again.',
+          sender: 'bot',
+          error: true,
+          timestamp: new Date().toISOString(),
+        };
+        
+        setMessages(prevMessages => [...prevMessages, errorMessage]);
+        setLoading(false);
+        setBotTyping(false);
+      }, 800);
     }
   };
 
-  // Custom markdown styling
+  // Custom markdown styling with enhanced formatting
   const markdownStyles = {
+    // Base text styling
     body: {
       color: '#333',
+      fontSize: 15,
+      lineHeight: 22,
     },
+    
+    // Headings with improved hierarchy and spacing
     heading1: {
       fontSize: 20,
+      fontWeight: 'bold',
+      marginTop: 14,
+      marginBottom: 8,
+      color: '#FF7F50',
+      borderBottomWidth: 1,
+      borderBottomColor: '#FFE5DC',
+      paddingBottom: 5,
+    },
+    heading2: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginTop: 12,
+      marginBottom: 6,
+      color: '#FF7F50',
+    },
+    heading3: {
+      fontSize: 16,
       fontWeight: 'bold',
       marginTop: 10,
       marginBottom: 5,
       color: '#333',
     },
-    heading2: {
-      fontSize: 18,
+    heading4: {
+      fontSize: 15,
       fontWeight: 'bold',
       marginTop: 8,
       marginBottom: 4,
-      color: '#333',
+      color: '#555',
+      fontStyle: 'italic',
     },
-    heading3: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      marginTop: 6,
-      marginBottom: 3,
-      color: '#333',
-    },
+    
+    // Enhanced link styling
     link: {
       color: '#FF7F50',
       textDecorationLine: 'underline',
+      fontWeight: '500',
     },
+    
+    // Improved blockquote for important medical notes/warnings
     blockquote: {
-      borderLeftWidth: 3,
+      borderLeftWidth: 4,
       borderLeftColor: '#FF7F50',
-      paddingLeft: 10,
-      marginLeft: 10,
-      fontStyle: 'italic',
-      color: '#555',
+      backgroundColor: '#FFECE7',
+      paddingLeft: 12,
+      paddingRight: 8,
+      paddingTop: 6,
+      paddingBottom: 6,
+      marginLeft: 0,
+      marginVertical: 10,
+      borderRadius: 0,
+      borderTopRightRadius: 4,
+      borderBottomRightRadius: 4,
     },
+    
+    // Enhanced list styling
     list_item: {
-      marginBottom: 5,
+      marginBottom: 6,
+      flexDirection: 'row',
+      alignItems: 'flex-start',
     },
     bullet_list: {
-      marginVertical: 5,
+      marginVertical: 8,
     },
     ordered_list: {
-      marginVertical: 5,
+      marginVertical: 8,
+    },
+    bullet_list_icon: {
+      marginRight: 6,
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#FF7F50',
+    },
+    ordered_list_icon: {
+      marginRight: 6,
+      fontSize: 15,
+      lineHeight: 22,
+      color: '#FF7F50',
+      fontWeight: '500',
+    },
+    
+    // Text styling
+    paragraph: {
+      marginVertical: 8,
     },
     strong: {
       fontWeight: 'bold',
+      color: '#333',
     },
     em: {
       fontStyle: 'italic',
+      color: '#444',
     },
+    
+    // Medical terms and important notes
     code_inline: {
-      backgroundColor: '#f5f5f5',
-      padding: 2,
+      backgroundColor: '#FFE5DC',
+      borderRadius: 3,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
       fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+      color: '#D55C30',
+      fontWeight: '500',
     },
+    
+    // Code blocks for medical reference data
     code_block: {
-      backgroundColor: '#f5f5f5',
-      padding: 8,
-      borderRadius: 4,
+      backgroundColor: '#F8F8F8',
+      padding: 10,
+      borderRadius: 6,
+      borderLeftWidth: 3,
+      borderLeftColor: '#FF7F50',
       fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
       marginVertical: 10,
+      fontSize: 14,
     },
-    hr: {
-      backgroundColor: '#ddd',
-      height: 1,
+    
+    // Table styles for medical data
+    table: {
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 6,
       marginVertical: 10,
+      overflow: 'hidden',
     },
+    thead: {
+      backgroundColor: '#FF7F50',
+    },
+    th: {
+      padding: 8,
+      fontWeight: 'bold',
+      color: 'white',
+    },
+    tbody: {
+      backgroundColor: 'white',
+    },
+    tr: {
+      borderBottomWidth: 1,
+      borderBottomColor: '#eee',
+    },
+    td: {
+      padding: 8,
+      borderRightWidth: 1,
+      borderRightColor: '#eee',
+    },
+    
+    // Horizontal rule for section separation
+    hr: {
+      backgroundColor: '#FFE5DC',
+      height: 2,
+      marginVertical: 14,
+    },
+    
+    // Image styling
+    image: {
+      marginVertical: 10,
+      borderRadius: 6,
+    },
+    
+    // Definition styles for medical terms
+    s: { // Using strikethrough tag as custom container for definitions
+      backgroundColor: '#F0F7FF',
+      padding: 10,
+      borderRadius: 6,
+      borderLeftWidth: 3,
+      borderLeftColor: '#6495ED',
+      marginVertical: 8,
+    }
   };
 
-  // Render message with markdown for bot responses
-  const renderMessage = ({ item }) => (
-    <View 
-      style={[
-        styles.messageBubble, 
-        item.sender === 'user' ? styles.userBubble : styles.botBubble,
-        item.error && styles.errorBubble
-      ]}
-    >
-      {item.sender === 'user' ? (
-        <Text style={styles.userMessageText}>
-          {item.text}
+  // Create custom Markdown renderer with plugins
+  const markdownItInstance = MarkdownIt({
+    typographer: true,
+    breaks: true,
+    linkify: true
+  });
+  
+  // Custom markdown renderer rules
+  const renderRules = {
+    // Custom handler for links
+    link: (node, children, parent, styles, inheritedStyles) => {
+      return (
+        <TouchableOpacity 
+          key={node.key} 
+          onPress={() => Linking.openURL(node.attributes.href)}
+          style={styles.link}
+        >
+          <Text style={styles.link}>
+            {children || node.content || node.attributes.href}
+            <Text> </Text>
+            <FontAwesome name="external-link" size={12} color="#FF7F50" />
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    // Custom handler for blockquotes to add icons for notes/warnings
+    blockquote: (node, children, parent, styles) => {
+      return (
+        <View key={node.key} style={styles.blockquote}>
+          <View style={styles.blockquoteIconContainer}>
+            <MaterialIcons name="info-outline" size={20} color="#FF7F50" />
+          </View>
+          <View style={styles.blockquoteContent}>
+            {children}
+          </View>
+        </View>
+      );
+    },
+    // Add timestamp to messages
+    text: (node, parent, styles, inheritedStyles) => {
+      // Normal text rendering for most cases
+      return (
+        <Text key={node.key} style={inheritedStyles}>
+          {node.content}
         </Text>
-      ) : (
-        <Markdown style={markdownStyles}>
-          {item.text}
-        </Markdown>
-      )}
+      );
+    }
+  };
+
+  // Format timestamp for display
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Render message with enhanced markdown for bot responses
+  const renderMessage = ({ item }) => (
+    <View style={styles.messageContainer}>
+      <View 
+        style={[
+          styles.messageBubble, 
+          item.sender === 'user' ? styles.userBubble : styles.botBubble,
+          item.error && styles.errorBubble
+        ]}
+      >
+        {item.sender === 'user' ? (
+          <Text style={styles.userMessageText}>
+            {item.text}
+          </Text>
+        ) : (
+          <Markdown 
+            style={markdownStyles}
+            rules={renderRules}
+            markdownit={markdownItInstance}
+          >
+            {item.text}
+          </Markdown>
+        )}
+      </View>
+      <Text style={[
+        styles.messageTimestamp,
+        item.sender === 'user' ? styles.userTimestamp : styles.botTimestamp
+      ]}>
+        {formatTime(item.timestamp)}
+      </Text>
     </View>
   );
 
@@ -429,23 +644,35 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   welcomeSubText: {
-    fontSize: 15,
+    fontSize: 16,
     textAlign: 'center',
-    marginBottom: 8,
-    color: '#555',
+    marginBottom: 12,
+    color: '#444',
+    fontWeight: '500',
   },
   markdownExampleContainer: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 16,
+    backgroundColor: '#FFECE7',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 18,
     alignSelf: 'stretch',
+    borderWidth: 1,
+    borderColor: '#FFD7CB',
+  },
+  markdownFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  featureIcon: {
+    marginRight: 10,
+    width: 20,
+    alignItems: 'center',
   },
   markdownExample: {
-    fontSize: 13,
-    color: '#555',
-    marginBottom: 4,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontSize: 14,
+    color: '#444',
+    flex: 1,
   },
   disclaimerText: {
     fontSize: 12,
@@ -457,26 +684,62 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 24,
   },
+  messageContainer: {
+    marginBottom: 16,
+    width: '100%',
+  },
   messageBubble: {
     padding: 12,
     borderRadius: 16,
-    marginBottom: 12,
     maxWidth: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   userBubble: {
     backgroundColor: '#FF7F50',
     alignSelf: 'flex-end',
+    borderBottomRightRadius: 4,
   },
   botBubble: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#FFFFFF',
     alignSelf: 'flex-start',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   errorBubble: {
-    backgroundColor: '#ffeded',
+    backgroundColor: '#FFEDED',
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6666',
   },
   userMessageText: {
     fontSize: 15,
     color: '#fff',
+    lineHeight: 22,
+  },
+  messageTimestamp: {
+    fontSize: 11,
+    marginTop: 4,
+    color: '#888',
+  },
+  userTimestamp: {
+    alignSelf: 'flex-end',
+    marginRight: 4,
+  },
+  botTimestamp: {
+    alignSelf: 'flex-start',
+    marginLeft: 4,
+  },
+  blockquoteIconContainer: {
+    marginRight: 8,
+    alignSelf: 'flex-start',
+    paddingTop: 2,
+  },
+  blockquoteContent: {
+    flex: 1,
   },
   botTypingContainer: {
     flexDirection: 'row',
